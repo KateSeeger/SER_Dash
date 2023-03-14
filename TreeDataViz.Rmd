@@ -1,0 +1,572 @@
+---
+title: "CUPNTreeData"
+output:
+  html_document: default
+  pdf_document: default
+date: '2022-10-13'
+---
+***Fix Naming Variables***
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(readr)
+library(RColorBrewer)
+library(patchwork)
+library(knitr)
+library(DT)
+library(webshot2)
+library(gt)
+library(kableExtra)
+library(stringr)
+library(ggthemes)
+```
+
+```{r}
+#setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice")
+
+# Reading in CSV files
+
+tree_basics <- read_csv(here::here("DataIn", "TreeBasics_20221013.csv"))
+seedling_sapling <- read_csv(here::here("DataIn", "SeedlingSapling_20221013.csv"))
+cwd_basics <- read_csv(here::here("DataIn", "CWD_Basics_20221013.csv"))
+canopy_cover <- read_csv(here::here("DataIn", "CanopyCover_20221021.csv"))
+USNVC <- read_csv(here::here("DataIn", "USNVC_dev.csv"))
+USNVC_parent <- read_csv(here::here("DataIn", "USNVC.csv"))
+
+```
+
+***Replicating Table 4 ***
+```{r, eval = FALSE, echo = FALSE}
+# Useful code for visualizing variance in data values: see Seedling_15_30_DBH
+
+seedling_sapling %>% 
+  dplyr::select(where(is.numeric)) %>% 
+  pivot_longer(cols = everything(),
+               names_to = "variable", 
+               values_to = "value") %>% 
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 30) +
+  facet_wrap(vars(variable), 
+             scales = "free")
+```
+
+```{r, eval = FALSE}
+
+# #Checking QAQC Plots
+# 
+# seedling_sapling_Count <-seedling_sapling%>%
+#   group_by(Plot_Code) %>%
+#   summarise(unique_date = n_distinct(Start_Date))
+# seedling_sapling_Count %>%
+#   filter(unique_date == 2)
+
+```
+
+```{r}
+#Calculating DBH using arithmetic average
+
+seedling_sapling <- seedling_sapling %>%
+  dplyr::mutate(Sapling01_dbh = Sapling_0_1_DBH*0.5, 
+         Sapling12h_dbh = Sapling_1_2half_DBH*1.75, 
+         Sapling2h5_dbh = Sapling_2half_5_DBH*3.25,
+         Sapling510_dbh = Sapling_5_10_DBH*7.5)
+
+#Finding sum of each column per Plot
+seedling_sapling_df <- seedling_sapling %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+  dplyr::select(Plot_Code,Seedling_15_30_Tall, 
+         Seedling_30_50_Tall, 
+         Seedling_50_137_Tall,
+         Sapling01_dbh,
+         Sapling12h_dbh,
+         Sapling2h5_dbh,
+         Sapling510_dbh, 
+         Sapling_0_1_DBH,
+         Sapling_1_2half_DBH, 
+         Sapling_2half_5_DBH,
+         Sapling_5_10_DBH) %>%
+  dplyr::group_by (Plot_Code) %>%
+  dplyr::summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+#Finding m2/ha Sapling BA - using Forbes' CODE 
+
+seedling_sapling_df <- seedling_sapling_df %>%
+  dplyr::mutate(
+    Sapling01_BA = (0.00007854 * (Sapling01_dbh^2)),
+    Sapling12h_BA = (0.00007854* (Sapling12h_dbh ^2)),
+    Sapling2h5_BA = (0.00007854 * (Sapling2h5_dbh ^2)),
+    Sapling510_BA = (0.00007854* (Sapling510_dbh^2)))
+
+  
+options(scipen=999)
+  
+#Finding sums of Sapling/Seedlings/BA
+
+seedling_sapling_df <- seedling_sapling_df %>%
+  dplyr::group_by(Plot_Code) %>%
+  dplyr::mutate(Seedling_Density = sum(Seedling_15_30_Tall,
+                                Seedling_30_50_Tall,
+                                Seedling_50_137_Tall), 
+         Sapling_BA = sum(Sapling01_BA, 
+                              Sapling12h_BA, 
+                              Sapling2h5_BA,
+                              Sapling510_BA)/0.008, 
+         Sapling_Density = sum(Sapling_0_1_DBH,
+                               Sapling_1_2half_DBH,
+                               Sapling_2half_5_DBH,
+                               Sapling_5_10_DBH)) 
+
+woody_stem <- seedling_sapling_df %>%
+  dplyr::select(Plot_Code,
+         Sapling_BA,
+         Sapling_Density,
+         Seedling_Density)
+
+# CUPN_FODO <- WoodyStem %>%
+#    filter(grepl("DONE", Plot_Code))
+
+```
+
+```{r}
+# Creating Tree (BA and Density columns by plot_code)
+# Basal area in square meters = pi * (dbh^2) / 40000
+
+tree_basics_BADEN <- tree_basics %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+  dplyr::mutate(Basal_Area_ha = (0.00007854 * DBH^2)/0.04)
+
+#count number of observations of trees for tree density
+tree_obs <- tree_basics_BADEN %>%
+  dplyr::group_by(Plot_Code) %>%
+  dplyr::summarize(DBH_Obs = n()) %>%
+  ungroup() %>%
+  dplyr::group_by(Plot_Code) %>%
+  dplyr::mutate(DBH_Obs = DBH_Obs/0.04)
+
+tree_basics_df <- tree_basics_BADEN %>% 
+  dplyr::select(Plot_Code,
+                Basal_Area_ha) %>%
+  dplyr::group_by (Plot_Code) %>%
+  dplyr::summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+tree_basics_df <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(tree_basics_df, tree_obs))
+
+CUPN_FODO <- tree_basics_df %>%
+   dplyr::filter(grepl("DONE", Plot_Code)| 
+            grepl("HEIM", Plot_Code))
+
+
+# setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice")
+# 
+# write.csv(CUPN_FODO, "CUPN_Tree_FODO_df.csv", row.names = FALSE)
+
+```
+
+```{r}
+#Adding Percent Canopy Cover
+canopy_cover_df <- canopy_cover %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+  dplyr::select(Plot_Code, Module_Code, Canopy_Cover_Percent) %>%
+  group_by(Plot_Code) %>%
+  summarize(Canopy_Cover_Percent = mean(Canopy_Cover_Percent))
+
+```
+
+```{r}
+#Join tables together with a full merge
+
+woodystem_full <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(tree_basics_df, woody_stem, canopy_cover_df))
+
+#rounding function 
+round_df <- function(x, digits) {
+    numeric_columns <- sapply(x, mode) == 'numeric'
+    x[numeric_columns] <-  round(x[numeric_columns], digits)
+    x
+}
+
+woodystem_round <- round_df(woodystem_full, 0)
+
+woody_table <- woodystem_round %>%
+  gt() %>%
+  cols_label(
+    Plot_Code = md("Plot"), 
+    Basal_Area_ha = html("Tree Basal Area, <br> (m<sup>2</sup>/ha)"), 
+    DBH_Obs = html("Tree Density <br> (400m<sup>2</sup>)"), 
+    Seedling_Density = html("Seedling Density <br> (8m<sup>2</sup>)"), 
+    Sapling_BA = html("Sapling Basal Area <br> (m<sup>2</sup>/ha)"), 
+    Sapling_Density = html("Sapling Density <br> (80m<sup>2</sup>)"), 
+    Canopy_Cover_Percent = html("Mean Canopy Cover <br> (%)")
+  ) %>%
+  tab_options(table.font.size = 12,
+              column_labels.border.bottom.color = "black", 
+              column_labels.border.top.color = "black", 
+              stub.border.color = "black", 
+              table.font.color = "black", 
+              table.font.weight = "normal", 
+              column_labels.font.weight = "bold") %>%
+    cols_width(
+    starts_with("Plot_Code") ~ px(150)
+  )
+  
+
+#woody_table %>% gtsave(filename = "Timu4_Replicate.html", inline_css = TRUE) 
+```
+
+***Replicating Appendix Table B2 ***
+
+```{r}
+# Replicating Seedling/Sapling Data per Species Level
+# Only has plant_code NOT species_diverity_ID
+#Same Code except grouping by Plant_Code not Plot_Code
+
+seedling_sapling_b2 <- seedling_sapling %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+  dplyr::select(Plant_Code,Seedling_15_30_Tall, 
+         Seedling_30_50_Tall, 
+         Seedling_50_137_Tall,
+         Sapling01_dbh, 
+         Sapling12h_dbh,
+         Sapling2h5_dbh,
+         Sapling510_dbh, 
+         Sapling_0_1_DBH,
+         Sapling_1_2half_DBH, 
+         Sapling_2half_5_DBH, 
+         Sapling_5_10_DBH) %>%
+  group_by (Plant_Code) %>%
+  summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+#Calculating BA for Saplings, using Forbes' equation 
+
+#=(((3.1415/(4*10000))*(0.5)^2)/0.001)*sumsapling
+
+
+seedling_sapling_b2 <- seedling_sapling_b2 %>%
+  dplyr::mutate(
+    Sapling01_BA = (0.00007854 * (Sapling01_dbh^2)),
+    Sapling12h_BA = (0.00007854* (Sapling12h_dbh ^2)),
+    Sapling2h5_BA = (0.00007854 * (Sapling2h5_dbh ^2)),
+    Sapling510_BA = (0.00007854* (Sapling510_dbh^2)))
+
+#Converting Density to count/HA
+
+seedling_sapling_b2 <- seedling_sapling_b2 %>%
+  dplyr::mutate(
+    Seedling_Den_15_30_Tall = Seedling_15_30_Tall/0.0008,
+    Seedling_Den_30_50_Tall = Seedling_30_50_Tall/0.0008,
+    Seedling_Den_50_137_Tall = Seedling_50_137_Tall/0.0008,
+    Sapling_Den_0_1_DBH = Sapling_0_1_DBH/0.008, 
+    Sapling_Den_1_2half_DBH = Sapling_1_2half_DBH/0.008,
+    Sapling_Den_2half_5_DBH = Sapling_2half_5_DBH/0.008,
+    Sapling_Den_5_10_DBH = Sapling_5_10_DBH/0.008
+  )
+  
+seedling_sapling_b2 <- seedling_sapling_b2 %>%
+  group_by(Plant_Code) %>%
+  dplyr::mutate(Seedling_Density = sum(Seedling_Den_15_30_Tall,
+                                Seedling_Den_30_50_Tall,
+                                Seedling_Den_50_137_Tall), 
+         Sapling_BA = sum(Sapling01_BA, 
+                              Sapling12h_BA,
+                              Sapling2h5_BA, 
+                              Sapling510_BA)/0.008, 
+         Sapling_Density = sum(Sapling_0_1_DBH, 
+                               Sapling_1_2half_DBH,
+                               Sapling_2half_5_DBH, 
+                               Sapling_5_10_DBH)) 
+
+options(scipen=999)
+
+woody_stem_b2 <- seedling_sapling_b2 %>%
+  dplyr::select(Plant_Code, 
+         Sapling_BA, 
+         Sapling_Density, 
+         Seedling_Density)
+
+
+```
+
+```{r}
+#Calculating Tree BA and Density per Species using tree_basics_BADEN
+#tree_basics_BADEN (Tree Basics BA and Density)
+
+#count number of observations of trees for tree density
+tree_obs_b2 <- tree_basics_BADEN %>%
+  group_by(Plant_Code) %>%
+  summarize(DBH_Obs = n())
+
+tree_basics_b2 <- tree_basics_BADEN %>% 
+  dplyr::select(Plant_Code,
+         Basal_Area_ha) %>%
+  group_by(Plant_Code) %>%
+  summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+tree_basics_b2 <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(tree_basics_b2, tree_obs_b2))
+tree_basics_b2 <- tree_basics_b2 %>%
+  dplyr::mutate(DBH_Obs = DBH_Obs*25)
+  
+```
+
+```{r}
+woodystem_full_b2 <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(tree_basics_b2, woody_stem_b2))
+
+round_df <- function(x, digits) {
+    numeric_columns <- sapply(x, mode) == 'numeric'
+    x[numeric_columns] <-  round(x[numeric_columns], digits)
+    x
+}
+
+woodystem_round_b2 <- round_df(woodystem_full_b2, 2)
+```
+
+```{r}
+woodystem_round_b2_blank <- woodystem_round_b2
+woodystem_round_b2_blank[is.na(woodystem_round_b2)] <- "-"
+```
+
+
+```{r}
+woody_table_b2 <- woodystem_round_b2_blank %>%
+  gt() %>%
+  cols_label(
+    Plant_Code = md("Species"), 
+    Basal_Area_ha = html("Tree Basal Area, <br> (m<sup>2</sup>/ha)"), 
+    DBH_Obs = html("Tree Density <br> (400m<sup>2</sup>)"), 
+    Seedling_Density = html("Seedling Density <br> (count/ha)"), 
+    Sapling_BA = html("Sapling Basal Area <br> (m<sup>2</sup>/ha)"), 
+    Sapling_Density = html("Sapling Density <br> (count/ha)")
+  ) %>%
+  tab_options(table.font.size = 12,
+              column_labels.border.bottom.color = "black", 
+              column_labels.border.top.color = "black", 
+              stub.border.color = "black", 
+              table.font.color = "black", 
+              table.font.weight = "light", 
+              column_labels.font.weight = "bold") %>%
+  cols_width(
+    starts_with("Plant_Code") ~ px(150)
+  )
+  
+
+woody_table_b2 
+#write.csv(woody_table_b2, "woody_table_b2.csv", row.names = FALSE)
+#woody_table_b2 %>% gtsave(filename = "TimuB2_Replicate.html", inline_css = TRUE)
+```
+
+```{r, eval = FALSE, echo = FALSE}
+#just checking sum numbers because they seem crazy high 
+# 
+# seedling_saplingcount <- seedling_sapling %>%
+#   filter(Plant_Code == "NYSSSYL", 
+#          Event_Type_Name != "QA/QC") %>%
+#   select( 
+#          Sapling_0_1_DBH,
+#          Sapling_1_2half_DBH, 
+#          Sapling_2half_5_DBH, 
+#          Sapling_5_10_DBH)
+# 
+# 
+# sum(seedling_saplingcount, na.rm = TRUE)  
+```
+
+
+***Replicating Figures 8, 11, 14 ***
+
+```{r}
+#Tree Count
+tree_basics_barplot <- tree_basics %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+  group_by(Plot_Code,
+           Plant_Code, 
+           Event_Type_Name,
+           Start_Date) %>%
+  summarize(TotalTreeCount = n())
+
+USNVC_parent <- USNVC_parent %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+  dplyr::select(-c("Parent_2", 
+            "Community_2", 
+            "Parent_3", 
+            "Community_3"))
+
+```
+
+```{r}
+USNVC_common <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(
+USNVC,
+USNVC_parent))
+
+USNVC_common <- USNVC_common %>%
+  dplyr::filter(Confidence == "1", 
+         Event_Type_Name != "QA/QC") %>%
+  dplyr::select(Plot_Code, 
+                Start_Date, 
+                Event_Type_Name,
+                Community_1,
+                Common_Name,
+                Translated_Name,
+                Parent_1)
+```
+
+```{r}
+#Sapling Count
+sapling_barplot <- seedling_sapling %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+  dplyr::select(Plot_Code, 
+         Plant_Code, 
+         Start_Date, 
+         Event_Type_Name, 
+         Sapling_0_1_DBH,
+         Sapling_1_2half_DBH, 
+         Sapling_2half_5_DBH,
+         Sapling_5_10_DBH) %>%
+  replace(is.na(.), 0) %>%
+  mutate(SapCount = rowSums(across(where(is.numeric))))
+
+    
+sapling_barplot <- sapling_barplot %>%
+  group_by(Plot_Code, 
+           Start_Date, 
+           Event_Type_Name,
+           Plant_Code) %>%
+  summarize(TotalSapCount = sum(SapCount))
+      
+#Seedling Count
+seedling_barplot <- seedling_sapling %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+#         Seedling_30_50_Tall != "514") %>% #getting rid of outlier
+  dplyr::select(Plot_Code,
+         Plant_Code,
+         Start_Date,
+         Event_Type_Name,
+         Seedling_15_30_Tall,
+         Seedling_5_15_Tall, 
+         Seedling_30_50_Tall,
+         Seedling_50_137_Tall) %>%
+  replace(is.na(.), 0) %>%
+  dplyr::mutate(SeedCount = rowSums(across(where(is.numeric))))
+    
+seedling_barplot <- seedling_barplot %>%
+  group_by(Plot_Code, Start_Date, Event_Type_Name, Plant_Code) %>%
+  summarize(TotalSeedCount = sum(SeedCount))
+ 
+#Creating table with sum counts woody strata 
+
+USNVC_full <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(USNVC_common, 
+                                sapling_barplot,
+                                seedling_barplot,
+                                tree_basics_barplot))
+
+```
+
+```{r no}
+USNVC_fulltest <- USNVC_full %>%
+  dplyr::select(Community_1,
+         Parent_1, 
+         Common_Name,
+         Translated_Name,
+         TotalSeedCount,
+         TotalSapCount,
+         TotalTreeCount) %>%
+  dplyr::group_by(Community_1,
+           Parent_1, 
+           Translated_Name, 
+           Common_Name) %>%
+  dplyr::summarise(across(TotalSeedCount:TotalTreeCount, sum, na.rm = TRUE), .groups = 'drop')
+
+# TROUBLESHOOTING
+#USNVC_Fulltest %>%
+#   separate(Translated_Name, c("Genera", "Low Canopy Cover"))
+#
+```
+
+mutate(frac = n/sum(n))
+
+dislike these plots and USNVC is weird here!!! 
+```{r don't use}
+USNVC_Totals <- USNVC_fulltest %>%
+  dplyr::group_by(Parent_1) %>%
+  dplyr::summarize(TotalSeedCount = sum(TotalSeedCount), 
+            TotalSapCount = sum(TotalSapCount),
+            TotalTreeCount = sum(TotalTreeCount))
+
+ff <- c(USNVC_Totals$Parent_1)
+
+fig <- plot_ly(USNVC_Totals, x = ~Parent_1, y = ~TotalSeedCount, type = 'bar', name = 'Tree')
+fig <- fig %>% add_trace(y = ~TotalSapCount, name = 'Sapling')
+fig <- fig %>% add_trace(y = ~TotalSapCount, name = 'Seedling')
+fig <- fig %>% layout(yaxis = list(title = 'Count'), barmode = 'stack')
+
+Animals <- c("giraffes", "orangutans", "monkeys")
+SF_Zoo <- c(20, 14, 23)
+LA_Zoo <- c(12, 18, 29)
+data <- data.frame(Animals, SF_Zoo, LA_Zoo)
+
+```
+
+
+
+
+<!-- ```{r} -->
+<!-- USNVC_fulltest <- USNVC_fulltest %>% -->
+<!--   dplyr::filter(Parent_1 == "Appalachian & Interior Mesophytic Forest") %>% -->
+<!--   pivot_longer( -->
+<!--                cols = starts_with("Total"), -->
+<!--                names_to = "Tree_Type",  -->
+<!--                values_to = "Count")  -->
+
+<!-- USNVC_fulltest <- USNVC_fulltest %>% -->
+<!--   group_by(Tree_Type) %>% -->
+<!--   mutate(Prop = (Count/(sum(Count)) * 100)) -->
+
+<!-- ``` -->
+
+<!-- ```{r, fig.height=3.5, fig.width=5} -->
+<!-- fig8_replicate <- USNVC_fulltest %>%  -->
+<!--   ggplot(aes(y = Prop, -->
+<!--              x = Tree_Type,  -->
+<!--              fill = Common_Name)) +  -->
+<!--   geom_bar(stat = "identity", width = 0.25) + -->
+<!--   theme_minimal() +  -->
+<!--   xlab("")+  -->
+<!--   ylab("") + -->
+<!--  # theme_minimal() + -->
+<!--   theme(legend.position = "bottom",  -->
+<!--         legend.title = element_blank()) +  -->
+<!--   scale_fill_brewer(palette = "Greens") +  -->
+<!--   guides(fill=guide_legend(ncol=2)) -->
+
+<!-- # png("fig8_replicate.png") -->
+<!-- fig8_replicate -->
+<!-- # dev.off() -->
+<!-- ``` -->
+
+<!-- ```{r, echo =FALSE, eval = FALSE} -->
+
+<!-- USNVC_fulltest %>%  -->
+<!--   ggplot(aes(y = Count, -->
+<!--              x = Tree_Type,  -->
+<!--              fill = Common_Name)) +  -->
+<!--   geom_bar(position = 'fill', stat = "identity", width = 0.25) + -->
+<!--   theme_minimal() +  -->
+<!--   xlab("")+  -->
+<!--   ylab("") + -->
+<!--   theme(legend.position = "bottom",  -->
+<!--         legend.title = element_blank()) +  -->
+<!--   scale_fill_brewer(palette = "Greens") +  -->
+<!--   guides(fill=guide_legend(ncol=2)) -->
+<!-- ``` -->
+

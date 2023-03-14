@@ -1,0 +1,365 @@
+---
+title: "QAQC_Veg_Tree"
+output: html_document
+date: '2022-11-25'
+---
+
+```{r}
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(readr)
+library(RColorBrewer)
+library(patchwork)
+library(knitr)
+library(DT)
+library(webshot2)
+library(gt)
+library(kableExtra)
+library(stringr)
+library(lubridate)
+library(ggthemes)
+```
+
+```{r data}
+#setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice")
+
+# Reading in CSV files
+
+treebasics <- read_csv(here::here("DataIn", "TreeBasics_20221013.csv"))
+seedlingsapling <- read_csv(here::here("DataIn", "seedlingsapling_20221013.csv"))
+canopycover <- read_csv(here::here("DataIn", "canopycover_20221021.csv"))
+constancy <- read_csv(here::here("DataIn", "Constancy_Data.csv"))
+constancy_full <- read_csv(here::here("DataIn", "Constancy_Data_Full.csv"))
+species_rich <- read_csv(here::here("DataIn", "SpeciesDiversity_LongFormat.csv"))
+
+```
+
+***QAQC Plots are resampled plots within 1 month of "Plot_Revisit" Sites***
+```{r plot mismatches} 
+#Finding mismatching plot codes/per dataset 
+#can substitute different datasets
+
+var1 <- unique(treebasics$Plot_Code)
+
+var2 <- unique(canopycover$Plot_Code)
+
+matched <- intersect(var1, var2)
+all <-  union(var1, var2)
+non.matched <- all[!all %in% matched]
+
+print(non.matched)
+
+str(non.matched)
+```
+```{r missing dates}
+#Finding mismatching date data/per dataset
+var1 <- unique(treebasics$Start_Date)
+
+var2 <- unique(seedlingsapling$Start_Date)
+
+matched <- intersect(var1, var2)
+all <-  union(var1, var2)
+non.matched <- all[!all %in% matched]
+
+print(non.matched)
+```
+
+```{r }
+#Creating year variable 
+treebasics$Year <- year(mdy(treebasics$Start_Date))
+
+treebasics
+```
+
+```{r QAQC data}
+#finding qaqc events to match dates and plot codes against
+treeqaqc <- treebasics %>%
+  dplyr::filter(Event_Type_Name == "QA/QC")
+
+listqaqc <- unique(treeqaqc$Plot_Code)
+# "CARL024" "CARL025" "CHIC002" "CHIC005" "CHIC007" "CHIC009" "CHIC010" "CHIC014" "CHIC017"
+# [10] "CHIC025" "COWP014" "COWP019" "GUCO008" "GUCO009" "GUCO012" "GUCO018" "KIMO011" "KIMO013"
+# [19] "LOOK003" "LOOK005" "LOOK006" "LOOK007" "LOOK009" "LOOK012" "LOOK013" "LOOK017" "MACA001"
+# [28] "MACA002" "MACA004" "MACA007" "MACA008" "MACA009" "MACA012" "MACA018" "MACA023" "MACA027"
+# [37] "MACA031" "MACA036" "MACA037" "MACA045" "MACA047" "MACA048" "MACA053" "MACA058" "MACA060"
+# [46] "MACA061" "NISI010" "NISI019" "STRI008" "STRI011"
+
+treelist <- treebasics %>%
+  dplyr::filter(Plot_Code %in% listqaqc) 
+
+#finding plot revisit plots == qaqc plots
+treelistrv <- treelist %>%
+  dplyr::filter(Event_Type_Name == "Plot Revisit") 
+
+treelistqaqc <- treelist %>%
+  dplyr::filter(Event_Type_Name == "QA/QC")
+  
+treelistest <- treelist %>%
+  dplyr::filter(Event_Type_Name == "Plot Establishment") 
+
+```
+
+```{r data wrangling 1}
+
+makefun <- function(data) {
+  data %>% 
+  dplyr::group_by(Plot_Code, Year) %>%
+  dplyr::summarize(n())
+  
+}
+
+treerv_num <- makefun(treelistrv)
+treeqaqc_num <- makefun(treelistqaqc)
+treeest_num <- makefun(treelistqaqc)
+
+#finding # of observations
+#making it into a function now!
+
+# treerv_num <- treelistrv %>%
+#   dplyr::group_by(Plot_Code, Year) %>%
+#   dplyr::summarize(n())
+#   
+# treeqaqc_num <- treelistqaqc %>%
+#   dplyr::group_by(Plot_Code, Year) %>%
+#   dplyr::summarize(n())
+# 
+# treeest_num <- treelistest %>%
+#   dplyr::group_by(Plot_Code, Year) %>%
+#   dplyr::summarize(n())
+
+```
+
+```{r data wrangling 2}
+#joining rv and qaqc, keeping plots and years where both have observations
+treerv_num <- full_join(treerv_num, treeqaqc_num, by = c("Plot_Code", "Year"))
+treerv_num <- treerv_num %>%
+  drop_na()
+#est and qaqc
+treeest_num <- full_join(treeest_num, treeqaqc_num, by = c("Plot_Code", "Year"))
+treeest_num <- treeest_num %>%
+  drop_na()
+
+treerv_num <- treerv_num %>%
+  dplyr::select(Plot_Code, Year)
+
+treeest_num <- treeest_num %>%
+  dplyr::select(Plot_Code, Year)
+
+#join original dataset that includes plot codes in qaqc and left join the ones where 
+#there are both observations for revisit/est and qaqc
+treerv_df <- left_join(treerv_num, treelistrv, by = c("Plot_Code", "Year"))
+treeest_df <- left_join(treeest_num, treelistest, by = c("Plot_Code", "Year"))
+
+#join original qaqc dataset that includes plot codes in qaqc and left join the ones where 
+#there are both observations for revisit/est and qaqc
+qaqc_revisit <- left_join(treerv_num, treelistqaqc, by = c("Plot_Code", "Year"))
+qaqc_est <- left_join(treeest_num, treelistqaqc, by = c("Plot_Code", "Year"))
+```
+
+```{r Revisit vs QAQC data}
+#comparing revisit and qaqc data
+tree_revisit <- full_join(treerv_df, qaqc_revisit, by = c("Plot_Code", "Year", "Tree_Number"))
+
+
+tree_revisit <- tree_revisit %>%
+  dplyr::select(Plot_Code, Year, Event_Type_Name.x,Event_Type_Name.y,  Start_Date.x, Start_Date.y, Tree_Number, Plant_Code.x, Plant_Code.y, DBH.x, DBH.y, Status_Code.x, Status_Code.y, Status_Name.x, Status_Name.y, Crown_Name.x, Crown_Name.y, Crown_Code.y, Crown_Code.y, Vigor_Code.x, Vigor_Code.y, Vigor_Name.x, Vigor_Name.y)
+```
+
+
+```{r creating flagged columns}
+#Finding mismatched data between revisit data and QAQC data, status name and DBH
+tree_revisit <- tree_revisit %>% 
+    dplyr::mutate(Status_mismatch = case_when(Status_Name.x == Status_Name.y ~ FALSE, 
+                                       Status_Name.x != Status_Name.y ~ TRUE)) %>% 
+    dplyr::mutate(Crown_mismatch = case_when(Crown_Name.x == Crown_Name.y ~ FALSE, 
+                                       Crown_Name.x != Crown_Name.y ~ TRUE)) %>% 
+    dplyr::mutate(DBH_mismatch = case_when(DBH.x == DBH.y ~ FALSE,
+                                    DBH.x < DBH.y ~ FALSE,
+                                    DBH.x > DBH.y ~ TRUE)) %>%
+  dplyr::mutate(Status_Fallacy = case_when(Status_Code.x > Status_Code.y ~ "Flag")) %>%
+  dplyr::mutate(Naming_error = case_when(Plant_Code.x != Plant_Code.y ~ "Flag"))
+```
+
+```{r flagged data}
+
+library(reactable)
+#Looking at Flagged Data
+tbl_treeflag <- reactable::reactable(
+  tree_revisit %>%
+  dplyr::filter(Status_mismatch == TRUE | 
+                  Crown_mismatch == TRUE |
+         DBH_mismatch == TRUE | 
+           Status_Fallacy == "Flag"|Naming_error == "Flag"), 
+  filterable = TRUE
+)
+```
+
+```{r mismatch naming}
+#Finding species naming errors
+var3 <- unique(tree_revisit$Plant_Code.x)
+
+var4 <- unique(tree_revisit$Plant_Code.y)
+
+matched <- intersect(var3, var4)
+all <-  union(var3, var4)
+non.matched <- all[!all %in% matched]
+
+print(non.matched)
+
+```
+***Comparing BA and Densities for Trees Revisit/QAQC***
+
+```{r Revisit BA}
+# Creating Tree (BA and Density columns by plot_code)
+# Basal area in square meters = pi * (dbh^2) / 40000
+
+treerevisit_bd <- treerv_df %>%
+  dplyr::mutate(Basal_Area_ha = ((pi * DBH^2) /40000)/0.04)
+
+#count number of observations of trees for tree density
+treerevisit_obs <- treerevisit_bd %>%
+  dplyr::group_by(Plot_Code, Year) %>%
+  dplyr::summarize(DBH_Obs = n())
+
+treerevisit_df <- treerevisit_bd %>% 
+  dplyr::select(Plot_Code, Year,
+                Basal_Area_ha) %>%
+  dplyr::group_by (Plot_Code, Year) %>%
+  dplyr::summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+treerevisit_df <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(treerevisit_df, treerevisit_obs))
+treerevisit_df
+
+```
+
+```{r QAQC BA}
+# Creating Tree (BA and Density columns by plot_code)
+# Basal area in square meters = pi * (dbh^2) / 40000
+
+treeqaqc_rvbd <- qaqc_revisit %>%
+  dplyr::mutate(Basal_Area_ha = ((pi * DBH^2) /40000 )/0.04)
+
+#count number of observations of trees for tree density
+treeqaqc_rvobs <- treeqaqc_rvbd %>%
+  dplyr::group_by(Plot_Code, Year) %>%
+  dplyr::summarize(DBH_Obs = n())
+
+treeqaqc_rvdf <- treeqaqc_rvbd %>% 
+  dplyr::select(Plot_Code, Year,
+                Basal_Area_ha) %>%
+  dplyr::group_by (Plot_Code, Year) %>%
+  dplyr::summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+treeqaqc_rvdf <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(treeqaqc_rvdf, treeqaqc_rvobs))
+treeqaqc_rvdf
+
+```
+
+```{r}
+#x is revisit, y is qaqc
+
+treerv <-  full_join(treerevisit_df, treeqaqc_rvdf, by = c("Plot_Code", "Year"))
+
+treerv <- treerv %>%
+  dplyr::select(Plot_Code, Year, Basal_Area_ha.x, Basal_Area_ha.y, DBH_Obs.x, DBH_Obs.y) %>%
+  drop_na()
+
+```
+
+```{r rv visualizing}
+treerv <- treerv %>%
+  dplyr::mutate(BA_Difference = Basal_Area_ha.y - Basal_Area_ha.x, 
+         DBH_Difference = DBH_Obs.y - DBH_Obs.x) 
+treerv %>%
+  ggplot(aes(x = BA_Difference, y = Plot_Code)) + 
+  geom_point() + 
+  theme_bw()
+         
+treerv %>%
+  ggplot(aes(x = DBH_Difference)) +
+  geom_bar() + 
+  theme_economist()
+
+```
+
+***Comparing BA and Densities for Trees Est/QAQC***
+```{r Est BA}
+# Creating Tree (BA and Density columns by plot_code)
+# Basal area in square meters = pi * (dbh^2) / 40000
+
+treeest_bd <- treeest_df %>%
+  dplyr::mutate(Basal_Area_ha = ((pi * DBH^2) /40000)/0.04)
+
+#count number of observations of trees for tree density
+treeest_obs <- treeest_bd %>%
+  dplyr::group_by(Plot_Code, Year) %>%
+  dplyr::summarize(DBH_Obs = n())
+
+treeest_df <- treeest_bd %>% 
+  dplyr::select(Plot_Code, Year,
+                Basal_Area_ha) %>%
+  dplyr::group_by (Plot_Code, Year) %>%
+  dplyr::summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+treeest_df <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(treeest_df, treeest_obs))
+treeest_df
+
+
+```
+
+```{r QAQC Est BA}
+# Creating Tree (BA and Density columns by plot_code)
+# Basal area in square meters = pi * (dbh^2) / 40000
+
+treeqaqc_estbd <- qaqc_est %>%
+  dplyr::mutate(Basal_Area_ha = ((pi * DBH^2) /40000 )/0.04)
+
+#count number of observations of trees for tree density
+treeqaqc_estobs <- treeqaqc_estbd %>%
+  dplyr::group_by(Plot_Code, Year) %>%
+  dplyr::summarize(DBH_Obs = n())
+
+treeqaqc_estdf <- treeqaqc_estbd %>% 
+  dplyr::select(Plot_Code, Year,
+                Basal_Area_ha) %>%
+  dplyr::group_by (Plot_Code, Year) %>%
+  dplyr::summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+treeqaqc_estdf <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(treeqaqc_estdf, treeqaqc_estobs))
+treeqaqc_estdf
+
+```
+
+```{r}
+#x is revisit, y is qaqc
+
+treeest <-  full_join(treeest_df, treeqaqc_estdf, by = c("Plot_Code", "Year"))
+
+treeest <- treeest %>%
+  dplyr::select(Plot_Code, Year, Basal_Area_ha.x, Basal_Area_ha.y, DBH_Obs.x, DBH_Obs.y) %>%
+  drop_na()
+
+```
+
+```{r est viz}
+treeest <- treeest %>%
+  dplyr::mutate(BA_Difference = Basal_Area_ha.y - Basal_Area_ha.x, 
+         DBH_Difference = DBH_Obs.y - DBH_Obs.x) 
+treeest %>%
+  ggplot(aes(x = BA_Difference, y = Plot_Code)) + 
+  geom_point() + 
+  theme_bw()
+         
+treeest %>%
+  ggplot(aes(x = DBH_Difference)) +
+  geom_bar() + 
+  theme_economist()
+
+```

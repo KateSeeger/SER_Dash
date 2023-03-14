@@ -1,0 +1,224 @@
+---
+title: "tree_test_leaflet"
+output: html_document
+date: '2023-02-19'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Map 2: Tree Regeneration By Size Class
+Map 5: Regeneration Composition
+Map 6: Canopy Composition
+Map 8: Priority Invasive Composition
+Map 8b: Not done by NETN, but agreed that we'd all like a map of relative abundance of Native versus Exotic by plot.  Should be very straigtforward, two colors (one for native, one for exotic)
+
+```{r}
+library(tidyverse) 
+library(dplyr)
+library(httr)
+library(rgdal) 
+library(sf) 
+library(RColorBrewer)
+library(sp) 
+library(rgeos)
+library(leaflet)
+library(leaflet.minicharts)
+library(mapview)
+library(lubridate)
+
+#testing more mapping for CUPN
+
+
+#setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice/Mapping/CUPN")
+tree_basics <- read_csv(here::here("DataIn", "TreeBasics_20221013.csv"))
+seed_sap <- read_csv(here::here("DataIn", "SeedlingSapling_20221013.csv"))
+#seed_sap has become only CARL plots in this script
+
+```
+
+#Seedling and Sapling data for CUPN CARL Plots 
+```{r}
+seed_sap <- seed_sap %>%
+dplyr::filter(Event_Type_Name != "QA/QC")
+
+```
+
+#CUPN Plot Lat and Long
+```{r}
+cupn_plots <- read_csv(here::here("DataIn", "CUPN_PlotEvents_LatLong.csv"))
+
+cupn_plots_select <- cupn_plots %>%
+    dplyr::select(Plot_Code, Start_Date, Latitude, Longitude)
+
+cupn_plots_select$Start_Date <- dmy(cupn_plots_select$Start_Date)
+
+cupn_plots_select <- cupn_plots_select %>%
+  group_by(Plot_Code) %>%
+  slice(which.max(Start_Date))
+
+cupn_plots_select <- cupn_plots_select %>%
+    dplyr::select(-Start_Date)
+
+```
+
+#adding CUPN shapefiles 
+```{r}
+cupn_boundary <- here::here('./cupnshapefile/CUPN.shp')
+
+st_crs(cupn_boundary)
+
+library(sf)
+
+cupn_boundary <- st_transform(cupn_boundary, crs = 4326)
+
+```
+
+#creating color palettes
+```{r}
+okabe_ito <- c( "#0072B2", "#D55E00", 
+               "#CC79A7", "#000000",  '#CC6677', '#BBCC33', '#99DDFF', 
+                '#332288', '#882255', '#FFAABB', "#E69F00", "#56B4E9", "#009E73", "#F0E442")
+
+viridis <- c("#fde725", "#5ec962", "#21918c","#3b528b","#440154")
+
+```
+
+#selecting top 13 species present in seedling/saplings and tree species
+#TRY USING FORCATS() PACKAGE: FCT_LUMP()
+
+```{r}
+#Seedling Sapling
+
+# trying code to see if fct_lump would be a better alternative
+# lword <- seed_sap %>%
+# filter(!is.na(Plant_Code)) %>%
+# mutate(Plant_Code = fct_lump(Plant_Code, n = 10)) %>%
+# count(Plant_Code)
+
+top_species <- seed_sap %>%
+dplyr::mutate(Plant_Code = as.factor(Plant_Code)) %>%
+  dplyr::group_by(Plant_Code) %>%
+  dplyr::summarise(Observations = n()) %>%
+  dplyr::arrange(desc(Observations))  %>%
+dplyr::mutate(Plant_Code = as.character(Plant_Code))
+
+top_species <- as.data.frame(top_species[top_species$Observations >400,])
+
+tree_basics_count <- tree_basics %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+dplyr::filter(Status_Code == 1) %>%
+  dplyr::mutate(Basal_Area_ha = ((pi * DBH^2) /40000 )/0.04)
+
+#Tree
+top_tree <- tree_basics_count %>%
+dplyr::mutate(Plant_Code = as.factor(Plant_Code)) %>%
+  group_by(Plant_Code) %>%
+  summarise(Observations = n()) %>%
+  arrange(desc(Observations))  %>%
+dplyr::mutate(Plant_Code = as.character(Plant_Code))
+
+top_tree <- as.data.frame(top_tree[top_tree$Observations >400,])
+```
+
+#creating list of most frequently occuring tree species
+```{r}
+
+species_col_palette <- inner_join(top_tree, top_species, by = "Plant_Code")
+  
+#species_col_palette <- rbind(top_tree, top_species)
+
+species_col_palette <- species_col_palette %>%
+  dplyr::select(Plant_Code) %>%
+  dplyr::mutate(Plant_Code = as.factor(Plant_Code))
+
+species_col_palette <- unique(species_col_palette)
+
+tree_count_test <- tree_basics_count %>%
+dplyr::filter(Plant_Code %in% species_col_palette$Plant_Code)
+
+unique(tree_count_test$Plant_Code)
+```
+
+#creating "Other category" in tree species count
+```{r}
+tree_basics_test_other <- tree_basics_count %>%
+dplyr::filter(!Plant_Code %in% species_col_palette$Plant_Code)
+
+tree_basics_test_other <- tree_basics_test_other %>%
+  group_by(Plot_Code) %>%
+  summarize(Other = n())
+```
+
+#creating tree_count: # basal area, # other, # obs per species
+```{r}
+#count number of observations of trees for tree density
+tree_count_test <- tree_count_test %>%
+  group_by(Plot_Code, Plant_Code) %>%
+  summarize(DBH_Obs = n()) %>%
+  ungroup()
+
+tree_count_test <- tree_count_test %>%
+  pivot_wider(names_from = Plant_Code, 
+              values_from = DBH_Obs)
+
+tree_count_test <- tree_count_test %>%
+  select(Plot_Code, sort(tidyselect::peek_vars()))
+
+tree_ba_test<- tree_basics_count %>%
+  group_by(Plot_Code) %>%
+  summarise(Sum = sum(Basal_Area_ha))
+
+tree_plot_test <-  Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(tree_ba_test, tree_basics_test_other, tree_count_test, cupn_plots_select))
+
+tree_plot_test <- tree_plot_test %>%
+  filter(!is.na(Latitude)) %>%
+  filter(!is.na(Longitude))
+```
+
+
+```{r, eval = FALSE}
+inputpark <-"COWP"
+
+#inputparl <- reactive$input
+
+park_zoom <- tree_plot_test %>%
+  dplyr::filter(grepl(inputpark, Plot_Code))
+
+```
+
+```{r}
+      # fitBounds(min(tree_plot_test$Longitude), min(tree_plot_test$Latitude), max(tree_plot_test$Longitude), max(tree_plot_test$Latitude))
+```
+
+#mapping subsetted TREE data
+```{r}
+baseman_carl = leaflet(data = tree_plot_test) %>%
+  addTiles() %>%
+  #addProviderTiles("Esri.WorldImagery", options = providerTileOptions(noWrap = TRUE), group="Satellite") %>%
+  addPolygons(data = cupn_boundary, color = ~ "black") %>%
+  addCircleMarkers(tree_plot_test$Longitude,
+                   tree_plot_test$Latitude,  color = ~ "black", weight = 1, fillColor = ~"blue", fillOpacity = 1, radius = 4)
+
+#SET VIEW SETS THE MIDDLE POINT OF THE MAP BUT DOES NOT NECESARRILY HELP FOR VIEWING PURPOSES
+#  setView(lng = mean(tree_plot_test$Longitude), lat = mean(tree_plot_test$Latitude), zoom = 15)
+
+baseman_carl <- baseman_carl %>%
+  addMinicharts(tree_plot_test$Longitude, 
+                tree_plot_test$Latitude, 
+    chartdata =dplyr::select(tree_plot_test, -c(Plot_Code, Latitude, Longitude)), 
+    type = "pie",
+    width = sqrt(tree_plot_test$Sum) * 4,
+    col = okabe_ito,
+    showLabels = F) %>%
+  addLabelOnlyMarkers(tree_plot_test$Longitude, 
+                tree_plot_test$Latitude, label =  tree_plot_test$Plot_Code,
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T, style=list('color'="#ffffff", 'fontSize'="15px"))) %>%
+  fitBounds(min(park_zoom$Longitude), min(park_zoom$Latitude), max(park_zoom$Longitude), max(park_zoom$Latitude))
+
+
+baseman_carl
+#mapshot(baseman_carl, file = "Map_TreeCanopy_Comp.png")
+```

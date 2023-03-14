@@ -1,0 +1,354 @@
+---
+title: "GULNVegScript"
+output: html_document
+date: '2022-11-18'
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(readr)
+library(RColorBrewer)
+library(patchwork)
+library(knitr)
+library(DT)
+library(gt)
+library(base)
+library(stringr)
+```
+
+```{r}
+#setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice")
+```
+
+```{r}
+GULNspecies <- read_csv("GULN_Database_Export.csv")
+CUPNspecies <- read_csv("SpeciesDiversity_LongFormat.csv")
+SpeciesList <- read_csv("GULN_JELA_species_list.csv")
+```
+
+```{r}
+GULNFull <- full_join(GULNspecies, SpeciesList, by = c( 'ScientificName' ='Network_Scientific_Name'))
+
+```
+
+```{r}
+GULN <- GULNFull %>%
+  rename(Network_Scientific_Name = ScientificName, 
+         Park_Code = Unit, 
+         Plot_Code = PlotNumber, 
+         Subunit = SubUnit, 
+         Start_Date = EventDate, 
+         Identification_Confidence = Confidence)
+```
+
+```{r}
+GULN <- GULN %>%
+  dplyr::select(Network_Scientific_Name, Park_Code, Plot_Code, Subunit, Start_Date, Identification_Confidence, CommonName, Growth_Form, Nativity, `1A_SMW`, `1B_SMW`, `2A_SMW`, `2B_SMW`, `3A_SMW`, `3B_SMW`, `4A_SMW`, `4B_SMW`)
+
+names(GULN) = gsub(pattern = "_SMW", replacement = "", x = names(GULN))
+
+GULN <- GULN %>%
+  pivot_longer(
+    cols = c(`1A`: `4B`),
+    names_to = "Module", 
+    values_to = "Sample_Depth_Code"
+  )
+ 
+GULN <- GULN %>%
+  mutate(Depth_Area = 
+           case_when(
+             Sample_Depth_Code == "M" ~"10", 
+             Sample_Depth_Code == "W" ~ "100",
+             Sample_Depth_Code == "S" ~"1")) %>%
+  mutate(Sample_Depth_Code = 
+           case_when(
+             Sample_Depth_Code == "M" ~"2", 
+             Sample_Depth_Code == "W" ~ "1",
+             Sample_Depth_Code == "S" ~"3"))
+  
+
+
+GULN <- GULN %>%
+  separate(Module, c("Module", "Corner"), sep = 1)
+  
+
+```
+
+
+
+```{r}
+GULN <- GULN %>%
+  mutate(Sample_Depth_Code = str_replace(Sample_Depth_Code,"NULL", "")) # %>%
+#  drop_na()
+```
+
+
+```{r}
+GULNTest <- GULN %>%
+  filter(Plot_Code == "BP_06"| Plot_Code == "BP_07" | Plot_Code =="BP_13" |Plot_Code == "BP_14" |Plot_Code =="BP_16" ) %>%
+  filter(Growth_Form == "Forb", 
+         Sample_Depth_Code == "3") %>%
+  group_by(Plot_Code, Module, Corner) %>%
+  count()
+
+GULNTest <- GULNTest %>%
+  group_by(Module, Corner) %>%
+  summarize(sum = sum(n))
+
+#Confirmed all integer values with Jane Carlson's pivot table
+#Ask Jane how she accounts for QAQC
+```
+
+
+***Creating Table for Jane***
+
+
+```{r}
+GULNSp <- GULN %>%
+  tidyr::replace_na(list(Nativity = "Unknown")) %>%
+  filter(!grepl('QAQC', Plot_Code)) 
+```
+
+```{r}
+GULNSp_Nativity <- GULNSp %>%
+  mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code), 
+         ) %>%
+  group_by(Plot_Code, Network_Scientific_Name,
+           Nativity) %>%
+  count(Nativity)
+
+GULNSp_Nativity <- GULNSp_Nativity %>%
+  group_by(Plot_Code) %>%
+  count(Nativity)
+
+GULNSp_Nativity <- GULNSp_Nativity %>%
+  pivot_wider(
+    names_from = Nativity, 
+    values_from = n
+  )
+
+```
+
+```{r}
+
+GULNSp_Total <- GULNSp %>%
+  filter(Sample_Depth_Code != 0) %>%
+  mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code),
+         Growth_Form = toupper(Growth_Form)) %>%
+  group_by(Plot_Code, Network_Scientific_Name, Growth_Form)%>%
+  count(Growth_Form)
+
+GULNSp_Total <- GULNSp_Total %>%
+  group_by(Plot_Code, Growth_Form) %>%
+  summarize(obs = n())
+
+```
+
+```{r}
+
+
+GULNSp_mod100 <- GULNSp %>%
+  filter(Sample_Depth_Code != 0) %>%
+  mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code), 
+         Growth_Form = toupper(Growth_Form)) %>%
+  group_by(Plot_Code, 
+           Growth_Form,
+           Module, 
+           Network_Scientific_Name) %>%
+  count(Network_Scientific_Name)
+
+#for example in BIRT002 for HERBS in mod 1, there are 22 unique species
+
+GULNSp_mod100 <- GULNSp_mod100 %>%
+  group_by(Plot_Code, Growth_Form, Module, Network_Scientific_Name) %>%
+  count(Module)
+  
+GULNSp_mod100 <- GULNSp_mod100 %>%
+  group_by(Plot_Code, Growth_Form, Module) %>%
+  summarize(numSpecies = sum(n))
+  
+GULNSp_mod100 <- GULNSp_mod100 %>%
+  group_by(Plot_Code, Growth_Form) %>%
+  summarize(ModPlot100 = mean(numSpecies))
+```
+
+```{r}
+#Species Richness at the 10m2 level 
+
+GULNSp_mod10 <- GULNSp %>%
+  filter(Sample_Depth_Code != 0, 
+         Sample_Depth_Code != 1) %>%
+  mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code), 
+         Growth_Form = toupper(Growth_Form)) %>%
+  group_by(Plot_Code, 
+           Growth_Form,
+           Module,
+           Corner,
+           Network_Scientific_Name) %>%
+  count(Network_Scientific_Name)
+
+GULNSp_mod10 <- GULNSp_mod10 %>%
+  group_by(Plot_Code, 
+           Growth_Form,
+           Module,
+           Corner,
+           Network_Scientific_Name) %>%
+  count(Corner)
+
+GULNSp_mod10 <- GULNSp_mod10 %>%
+  group_by(Plot_Code, 
+           Growth_Form,
+           Module,
+           Corner) %>%
+  summarize(numSpecies = sum(n))
+  
+GULNSp_mod10 <- GULNSp_mod10 %>%
+  group_by(Plot_Code, Growth_Form) %>%
+  summarize(Mod10 = mean(numSpecies))
+```
+
+```{r}
+#Species Richness at the 1m2 level 
+
+GULNSp_mod1 <- GULNSp %>%
+  filter(Sample_Depth_Code == 3) %>%
+  mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code), 
+         Growth_Form = toupper(Growth_Form)) %>%
+  group_by(Plot_Code, 
+           Growth_Form, 
+           Module,
+           Corner,
+           Network_Scientific_Name) %>%
+  count(Network_Scientific_Name)
+
+GULNSp_mod1 <- GULNSp_mod1 %>%
+  group_by(Plot_Code, 
+           Growth_Form, 
+           Module, 
+           Corner,
+           Network_Scientific_Name) %>%
+  count(Corner)
+  
+GULNSp_mod1 <- GULNSp_mod1 %>%
+  group_by(Plot_Code,
+           Growth_Form,
+           Module, 
+           Corner) %>%
+  summarize(numSpecies = sum(n))
+  
+GULNSp_mod1 <- GULNSp_mod1 %>%
+  group_by(Plot_Code, Growth_Form) %>%
+  summarize(Mod1 = mean(numSpecies))
+```
+
+```{r}
+# Full join of SP Div Tables 
+GULNSp_T3 <- Reduce(function (...) { merge(..., all = TRUE) },  
+                           list(GULNSp_Total, GULNSp_mod100, GULNSp_mod10, GULNSp_mod1))
+```
+
+```{r}
+GULNSp_T3 <- GULNSp_T3 %>%
+  pivot_wider(
+    names_from = Growth_Form, 
+    values_from = c(obs,
+                    ModPlot100,
+                    Mod10, 
+                    Mod1), 
+    names_prefix = "")
+
+GULNSp_T3_full <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(GULNSp_Nativity, GULNSp_T3))
+
+round_df <- function(x, digits) {
+    # round all numeric variables
+    # x: data frame 
+    # digits: number of digits to round
+    numeric_columns <- sapply(x, mode) == 'numeric'
+    x[numeric_columns] <-  round(x[numeric_columns], digits)
+    x
+}
+
+GULNSp_T3_full <- round_df(GULNSp_T3_full, 1)
+
+GULNSp_T3_full <- GULNSp_T3_full %>%
+    replace(is.na(.), 0)
+```
+
+```{r}
+TimuT3 <- GULNSp_T3_full %>%
+  gt() %>%
+  cols_label(
+    Plot_Code = "Plot Code",
+    Native = html("<br>Native<sup>a</sup>"),
+    `Non-Native`= html("<br>Non-native <sup>a</sup>"),
+    Unknown = html("<br>Unknown<sup>a</sup>"),
+    obs_FORB = html("<br>F<sup>a</sup>"), 
+    obs_GRAMINOID = html("<br>G<sup>a</sup>"),
+   `obs_SHRUB/PALMETTO` = html("<br>SP<sup>a</sup>"),
+    obs_TREE = html("<br>T<sup>a</sup>"), 
+    obs_VINE = html("<br>V<sup>a</sup>"),
+    ModPlot100_FORB = html("<br>F<sup>b</sup>"), 
+    ModPlot100_GRAMINOID = html("<br>G<sup>b</sup>"),
+   `ModPlot100_SHRUB/PALMETTO` = html("<br>SP<sup>b</sup>"),
+    ModPlot100_TREE = html("<br>T<sup>b</sup>"), 
+   `ModPlot100_VINE` = html("<br>V<sup>b</sup>"),
+    Mod10_FORB = html("<br>F<sup>c</sup>"), 
+    Mod10_GRAMINOID = html("<br>G<sup>c</sup>"),
+   `Mod10_SHRUB/PALMETTO` = html("<br>SP<sup>c</sup>"),
+    Mod10_TREE = html("<br>T<sup>c</sup>"), 
+    `Mod10_VINE` = html("<br>V<sup>c</sup>"),
+    Mod1_FORB = html("<br>F<sup>d</sup>"), 
+    Mod1_GRAMINOID = html("<br>G<sup>d</sup>"),
+   `Mod1_SHRUB/PALMETTO` = html("<br>SP<sup>d</sup>"),
+    Mod1_TREE = html("<br>T<sup>d</sup>"), 
+    `Mod1_VINE` = html("<br>V<sup>d</sup>")) %>%
+   tab_options(table.font.size = 12,
+              column_labels.border.bottom.color = "gray", 
+              column_labels.border.top.color = "gray", 
+              stub.border.color = "gray", 
+              table.font.color = "black", 
+              table.font.weight = "light", 
+              column_labels.font.weight = "bold") %>%
+  cols_align(
+    align = "center", 
+    columns = everything()
+  ) %>%
+  cols_width(
+    starts_with("Plot_Code") ~ px(150)
+  ) %>%
+tab_style(
+  style = cell_borders(
+        sides = "right",
+        color = "Gray",
+        weight = px(2)), 
+locations = list(
+  cells_body(
+    column = Plot_Code
+  ),
+  cells_body( 
+    columns = `Unknown`), 
+  cells_body(
+    columns = `obs_VINE`
+  ), 
+  cells_body(
+    columns = `ModPlot100_VINE`
+  ), 
+  cells_body(
+    columns = `Mod10_VINE`
+  ), 
+  cells_body(
+    column = `Mod1_VINE`
+  )
+))
+
+
+#TimuT3 %>% gtsave(filename = "TimuT3_GULN.html", inline_css = TRUE)
+```
+

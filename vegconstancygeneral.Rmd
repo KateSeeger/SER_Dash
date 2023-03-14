@@ -1,0 +1,359 @@
+---
+title: "VegConstancy"
+output: html_document
+date: '2022-11-22'
+---
+```{r}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(knitr)
+library(base)
+library(stringr)
+library(gt)
+library(psych)
+library(reactable)
+library(sparkline)
+
+#these GENERAL Viz RMDs are to create a flexdashboard compatible/generalized for all networks
+
+```
+
+```{r}
+#Set Working Directory
+#setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice")
+constancy <- read_csv(here::here("DataIn", "Constancy_Data.csv"))
+constancy_full <- read_csv(here::here("DataIn", "Constancy_Data_Full.csv"))
+```
+
+#ORIGINAL CODE COVER CALC
+```{r}
+#Finding Average Mean Plot Cover by Species across broad habitat types
+cover_calc <- constancy_full %>%
+  dplyr::select(`BROAD HABITAT TYPE`, 
+                Species_Original,
+                `Mean Plot Cover`) %>%
+  group_by(`BROAD HABITAT TYPE`,
+           Species_Original) %>%
+  summarise(Avg_MPC = mean(`Mean Plot Cover`))%>%
+  ungroup()
+
+#Pivoting
+cover_calc <- cover_calc %>%
+  pivot_wider(
+    names_from = `BROAD HABITAT TYPE`, 
+    values_from = Avg_MPC
+  )
+
+cover_calc <- cover_calc %>%
+  rename(CPNW = `Coastal Plain Nonalluvial Wetlands`, 
+         CPOUW = `Coastal Plain Open Uplands and Woodlands`, 
+         MUFS = `Maritime Upland Forests and Shrublands`)
+
+```
+
+#GENERAL CODE COVER CALC
+#BIG CAVEAT IS THAT PLANT_CODE COULD ALSO BE SPECIES_DIVERSITY_ID and GROUP COULD BE SOME OTHER GROUPING COLUMN NAME
+```{r}
+#Finding Average Mean Plot Cover by Species across broad habitat types
+cover_calc <- constancy_full %>%
+  dplyr::select(`GROUP`, 
+                Plant_Code,
+                `Mean Plot Cover`) %>%
+  group_by(`GROUP`,
+           Plant_Code) %>%
+  summarise(Avg_MPC = mean(`Mean Plot Cover`)) %>%
+  ungroup()
+```
+# ^ using original code to create cover_calc variable before "GROUP" column comes into existence 
+```{r}
+makeInitials <- function(charVec) {
+  make.unique(vapply(strsplit(toupper(charVec), " "), 
+                     function(x) paste(substr(x, 1, 1), collapse = ""), 
+                     vector("character", 1L)))
+}
+
+#Creating function to get acronyms from "grouped" column
+cover_calc <- cover_calc %>%
+  mutate(Group = mapply(function(charVec) makeInitials(charVec), `BROAD HABITAT TYPE`)) #BHT = `GROUP`
+  
+
+#Pivoting
+cover_calc <- cover_calc %>%
+  select(Species_Original, Group, Avg_MPC) %>%
+    pivot_wider(names_from = `Group`, 
+    values_from = Avg_MPC
+  )
+
+cover_calc
+
+```
+
+#ORIGINAL CODE COVER CODE
+```{r}
+#Calculating Cover Code
+#Is it worth it to figure out for loops???
+
+cover_code <- cover_calc %>%
+  dplyr::mutate(CPNW_Cover = case_when(
+    CPNW == NA ~ "",
+    CPNW >= 0 & CPNW <=0.1~ "1", 
+    CPNW >= 0.1 & CPNW <=1~ "2",
+    CPNW >= 1 & CPNW <= 2 ~ "3",
+    CPNW >= 2 & CPNW <= 5 ~ "4",
+    CPNW >= 5 & CPNW <= 10 ~ "5",
+    CPNW >= 10 & CPNW <=25~ "6",
+    CPNW >= 25 & CPNW <=50~ "7",
+    CPNW >= 50 & CPNW <= 75 ~ "8",
+    CPNW >= 75 & CPNW <=95 ~ "9",
+    CPNW >= 95 & CPNW <= 100 ~ "10"),
+CPOUW_Cover = case_when(CPOUW == NA ~ "",
+    CPOUW >= 0 & CPOUW <=0.1~ "1", 
+    CPOUW >= 0.1 & CPOUW <=1~ "2",
+    CPOUW >= 1 & CPOUW <= 2 ~ "3",
+    CPOUW >= 2 & CPOUW <= 5 ~ "4",
+    CPOUW >= 5 & CPOUW <= 10 ~ "5",
+    CPOUW >= 10 & CPOUW <=25~ "6",
+    CPOUW >= 25 & CPOUW <=50~ "7",
+    CPOUW >= 50 & CPOUW <= 75 ~ "8",
+    CPOUW >= 75 & CPOUW <=95 ~ "9",
+    CPOUW >= 95 & CPOUW <= 100 ~ "10"),
+MUFS_Cover = case_when(MUFS == NA ~ "",
+                     MUFS >= 0 & MUFS <=0.1~ "1",
+                     MUFS >= 0.1 & MUFS <=1~ "2",
+                     MUFS >= 1 & MUFS <= 2 ~ "3",
+                     MUFS >= 2 & MUFS <= 5 ~ "4",
+                     MUFS >= 5 & MUFS <= 10 ~ "5",
+                     MUFS >= 10 & MUFS <=25~ "6",
+                     MUFS >= 25 & MUFS <=50~ "7",
+                     MUFS >= 50 & MUFS <= 75 ~ "8",
+                     MUFS >= 75 & MUFS <=95 ~ "9",
+                     MUFS >= 95 & MUFS <= 100 ~ "10")
+    
+  )
+```
+#ORIGINAL CODE ""
+```{r}
+#Cover Calculations 
+cover_code <- cover_code %>%
+  dplyr::mutate(CPNW_Cover = as.numeric(CPNW_Cover), 
+         CPOUW_Cover = as.numeric(CPOUW_Cover), 
+         MUFS_Cover = as.numeric(MUFS_Cover))
+```
+
+#GENERAL CODE COVER CODE
+```{r}
+
+cover_calc %>%
+  mutate_if(is.numeric, list(~case_when(. >= 0 & . <= 0.1 ~ "1")))
+
+
+cover_code <- cover_calc %>%
+  mutate_if(is.numeric, list(~case_when(
+    . >= 0 & . <=0.1~ "1",
+                     . >= 0.1 & . <=1~ "2",
+                     . >= 1 & . <= 2 ~ "3",
+                     . >= 2 & . <= 5 ~ "4",
+                     . >= 5 & . <= 10 ~ "5",
+                     . >= 10 & . <=25~ "6",
+                     . >= 25 & . <=50~ "7",
+                     . >= 50 & . <= 75 ~ "8",
+                     . >= 75 & . <=95 ~ "9",
+                     . >= 95 & . <= 100 ~ "10" )
+  ))
+
+cover_code <- cover_code %>%
+ # select(-Species_Original) %>% #general code would be -Plant_Code
+  rename_at(vars(-Species_Original),function(x) paste0(x,"_Cover")) %>%
+  mutate_at(vars(-Species_Original), as.integer)
+```
+
+#ORIGINAL CODE CONSTANCY COUNT
+```{r}
+#Finding count of "event_name_date_calc" /species? across broad habitat types 
+
+constancy_count <- constancy_full %>%
+  dplyr::select(`BROAD HABITAT TYPE`, Species_Original, `Mean Plot Cover`) %>%
+  group_by(`BROAD HABITAT TYPE`, Species_Original) %>%
+  summarise(Species_Total = n()) 
+
+constancy_count <- constancy_count %>%
+  pivot_wider(
+    names_from = `BROAD HABITAT TYPE`, 
+    values_from = Species_Total
+  )
+
+```
+
+#GENERAL CODE CONSTANCY COUNT 
+```{r}
+#Finding count of "event_name_date_calc" /species? across broad habitat types 
+
+constancy_count <- constancy_full %>%
+  dplyr::select(`GROUP`, Plant_Code, `Mean Plot Cover`) %>%
+  group_by(`GROUP`, Plant_Code) %>%
+  summarise(Species_Total = n()) 
+
+constancy_count <- constancy_count %>%
+  pivot_wider(
+    names_from = `GROUP`, 
+    values_from = Species_Total
+  )
+
+```
+
+#ORIGINAL CODE FOR FINDING CONSTANCY COUNT 
+```{r}
+#Calculating Constancy values 
+constancy_count <- constancy_count %>%
+  replace(is.na(.), 0) %>%
+  dplyr::mutate(
+    CPNW_Constancy = ((`Coastal Plain Nonalluvial Wetlands`/max(`Coastal Plain Nonalluvial Wetlands`)) * 100),
+    CPOUW_Constancy = ((`Coastal Plain Open Uplands and Woodlands`/max(`Coastal Plain Open Uplands and Woodlands`)) * 100), 
+    MUFS_Constancy = ((`Maritime Upland Forests and Shrublands`/max(`Maritime Upland Forests and Shrublands`))*100 )
+  )
+```
+#ORIGINAL CODE CONTD
+```{r}
+constancy_plot_num <- constancy_full%>%
+  group_by(`BROAD HABITAT TYPE`, event_name_date_calc) %>%
+  summarize(n()) %>%
+  ungroup() %>%
+  group_by(`BROAD HABITAT TYPE`) %>%
+  summarize(Num_Plots = n()) 
+
+constancy_count <- constancy_full %>%
+  dplyr::select(`BROAD HABITAT TYPE`, Species_Original, `Mean Plot Cover`) %>%
+  group_by(`BROAD HABITAT TYPE`, Species_Original) %>%
+  summarise(Species_Total = n())
+  
+
+constancy_count <- left_join(constancy_count, constancy_plot_num, by = "BROAD HABITAT TYPE")
+
+constancy_count <- constancy_count %>% 
+  dplyr::group_by(`BROAD HABITAT TYPE`) %>%
+  dplyr::mutate(Constancy = (Species_Total/Num_Plots)) %>%
+  dplyr::select(`BROAD HABITAT TYPE`, Species_Original, Constancy) %>%
+  ungroup()
+
+constancy_count <- constancy_count %>%
+   mutate(Group = mapply(function(charVec) makeInitials(charVec), `BROAD HABITAT TYPE`)) #BHT = `GROUP`
+
+constancy_count <- constancy_count %>%
+  select(-`BROAD HABITAT TYPE`) %>%
+  pivot_wider(names_from = Group, 
+              values_from = Constancy)
+
+constancy_count <- constancy_count %>%
+    rename_at(vars(-Species_Original),function(x) paste0(x,"_Constancy")) 
+
+```
+
+
+
+#GENERAL CODE/MORE SUSTAINABLE CODE FOR CALCULATING CONSTANCY COUNT
+```{r}
+constancy_plot_num <- constancy_full%>%
+  group_by(`GROUP`, event_name_date_calc) %>% #UNSURE IS EVENT_NAME_DATE_CALC IS A UNIVERSAL VARIABLE
+  summarize(n()) %>%
+  ungroup() %>%
+  group_by(`GROUP`) %>%
+  summarize(Num_Plots = n())
+
+
+constancy_count <- constancy_full %>%
+  dplyr::select(`GROUP`, Plant_Code, `Mean Plot Cover`) %>%
+  group_by(`GROUP`, Plant_Code) %>%
+  summarise(Species_Total = n()) 
+
+constancy_count <- left_join(constancy_count, constancy_plot_num, by = "GROUP")
+
+
+constancy_count <- constancy_count %>% 
+  dplyr::group_by(`GROUP`) %>%
+  dplyr::mutate(Constancy = (Species_Total/Num_Plots)) %>%
+  dplyr::select(`GROUP`, Species_Original, Constancy) %>%
+  ungroup()
+
+constancy_count <- constancy_count %>%
+   mutate(Group = mapply(function(charVec) makeInitials(charVec), `GROUP`)) #BHT = `GROUP`
+
+constancy_count <- constancy_count %>%
+  select(-`GROUP`) %>%
+  pivot_wider(names_from = Group, 
+              values_from = Constancy)
+
+constancy_count <- constancy_count %>%
+    rename_at(vars(-Species_Original),function(x) paste0(x,"_Constancy"))
+```
+
+
+#ROUNDING FUNCTION
+```{r}
+round_df <- function(x, digits) {
+    numeric_columns <- sapply(x, mode) == 'numeric'
+    x[numeric_columns] <-  round(x[numeric_columns], digits)
+    x
+}
+
+constancy_count <- round_df(constancy_count, 0)
+
+```
+
+#ORIGINAL CODE FOR CREATING SUBSETTED DATASETS TO MERGE TOGETHER
+```{r}
+cover_calc_code <- cover_code %>%
+  dplyr::select(Species_Original, CPNW_Cover, CPOUW_Cover, MUFS_Cover) 
+
+constancy_count_code <- constancy_count %>%
+  dplyr::select(Species_Original, CPNW_Constancy, CPOUW_Constancy, MUFS_Constancy) 
+```
+
+#GENERAL CODE FOR CREATING SUBSETTED DATASETS TO MERGE TOGETHER
+```{r}
+#not needed! 
+```
+
+#ORIGINAL CODE FOR CREATING FINAL DATASET
+```{r}
+constancy_final <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(cover_calc_code, constancy_count_code))
+```
+
+```{r}
+constancy_final <- constancy_final %>%
+  dplyr::select(Species_Original, CPNW_Constancy, CPNW_Cover, CPOUW_Constancy, CPOUW_Cover, MUFS_Constancy, MUFS_Cover)
+```
+
+```{r}
+constancy_final[constancy_final == 0] <- NA
+
+constancy_final[is.na(constancy_final)] <- "-"
+
+constancy_final
+```
+
+#GENERAL CODE FOR CREATING FINAL DATASET
+```{r}
+constancy_final <- Reduce(function (...) { merge(..., all = TRUE) },  #full join idk why I can't just do a regular left join....
+                        list(cover_calc_cover, constancy_count_code))
+```
+
+```{r}
+constancy_final[constancy_final == 0] <- NA
+
+constancy_final[is.na(constancy_final)] <- "-"
+
+constancy_final<- constancy_final  %>%
+  tidyr::pivot_longer(cols = - Species_Original,
+               names_to = "codes", 
+               values_to = "value") %>%
+  dplyr::arrange(codes) %>%
+  tidyr::pivot_wider(names_from = "codes", 
+              values_from = "value")
+```
+ 

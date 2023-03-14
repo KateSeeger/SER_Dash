@@ -1,0 +1,109 @@
+---
+title: "GULN_VegScript"
+output: html_document
+date: '2022-11-22'
+---
+```{r, warning =FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(knitr)
+library(base)
+library(stringr)
+library(gt)
+```
+
+```{r}
+GULNspecies <- read_csv(here::here("DataIn", "GULN_Database_Export.csv"))
+SpeciesList <- read_csv(here::here("DataIn", "GULN_JELA_species_list.csv"))
+```
+
+```{r}
+#Joining Species list and larger veg dataset
+GULNFull <- full_join(GULNspecies, SpeciesList, by = c( 'ScientificName' ='Network_Scientific_Name'))
+```
+
+```{r}
+#Renaming columns to match CUPN Data Dictionary
+GULN <- GULNFull %>%
+  rename(Network_Scientific_Name = ScientificName, 
+         Park_Code = Unit, 
+         Plot_Code = PlotNumber, 
+         Subunit = SubUnit, 
+         Start_Date = EventDate, 
+         Identification_Confidence = Confidence,
+         Common_Name = CommonName)
+```
+
+```{r}
+#Selecting Variables, Removing cover percentage 
+
+GULN <- GULN %>%
+  select(Network_Scientific_Name, 
+         Park_Code, 
+         Plot_Code, 
+         Subunit, 
+         Start_Date,
+         Identification_Confidence, 
+         CommonName,
+         Growth_Form,
+         Nativity,
+         `1A_SMW`,
+         `1B_SMW`, 
+         `2A_SMW`,
+         `2B_SMW`, 
+         `3A_SMW`, 
+         `3B_SMW`, 
+         `4A_SMW`, 
+         `4B_SMW`)
+
+names(GULN) = gsub(pattern = "_SMW", replacement = "", x = names(GULN))
+
+GULN <- GULN %>%
+  pivot_longer(
+    cols = c(`1A`: `4B`),
+    names_to = "Module", 
+    values_to = "Sample_Depth_Code"
+  )
+```
+
+```{r}
+#Creating columns Depth_Area and Sample_Depth_Code to match CUPN format 
+
+GULN <- GULN %>%
+  mutate(Depth_Area = 
+           case_when(
+             Sample_Depth_Code == "M" ~"10", 
+             Sample_Depth_Code == "W" ~ "100",
+             Sample_Depth_Code == "S" ~"1")) %>%
+  mutate(Sample_Depth_Code = 
+           case_when(
+             Sample_Depth_Code == "M" ~"2", 
+             Sample_Depth_Code == "W" ~ "1",
+             Sample_Depth_Code == "S" ~"3")) %>%
+  separate(Module, c("Module", "Corner"), sep = 1)
+
+```
+
+```{r}
+#Cleaning up some data
+
+GULN <- GULN %>%
+  mutate(Sample_Depth_Code = str_replace(Sample_Depth_Code,"NULL", "")) %>%
+  tidyr::replace_na(list(Nativity = "Unknown")) %>%
+  filter(!grepl('QAQC', Plot_Code))
+
+```
+
+```{r}
+#Create a CSV file
+
+#Code Example
+#write_csv(GULN, "C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice/GULN.csv")
+
+```
+

@@ -1,0 +1,216 @@
+---
+title: "VegConstancy"
+output: html_document
+date: '2022-11-22'
+---
+```{r}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(knitr)
+library(base)
+library(stringr)
+library(gt)
+library(psych)
+
+#creating constancy table and gt table
+```
+
+```{r}
+#Set Working Directory
+#setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice/Mapping/SECN")
+Constancy <- read_csv(here::here("DataIn", "Constancy_Data.csv"))
+Constancy_Full <- read_csv(here::here("DataIn", "Constancy_Data_Full.csv"))
+```
+
+```{r}
+#Finding Average Mean Plot Cover by Species across broad habitat types
+Constancy_Calc <- Constancy_Full %>%
+  dplyr::select(`BROAD HABITAT TYPE`, 
+                Species_Original,
+                `Mean Plot Cover`) %>%
+  group_by(`BROAD HABITAT TYPE`,
+           Species_Original) %>%
+  summarise(Avg_MPC = mean(`Mean Plot Cover`)) 
+
+#Pivoting
+Constancy_Calc <- Constancy_Calc %>%
+  pivot_wider(
+    names_from = `BROAD HABITAT TYPE`, 
+    values_from = Avg_MPC
+  )
+
+Constancy_Calc <- Constancy_Calc %>%
+  rename(CPNW = `Coastal Plain Nonalluvial Wetlands`, 
+         CPOUW = `Coastal Plain Open Uplands and Woodlands`, 
+         MUFS = `Maritime Upland Forests and Shrublands`)
+
+```
+```{r}
+#Calculating Cover Code
+#Is it worth it to figure out for loops???
+
+Cover_Calc <- Constancy_Calc %>%
+  dplyr::mutate(CPNW_Cover = case_when(
+    CPNW == NA ~ "",
+    CPNW >= 0 & CPNW <=0.1~ "1", 
+    CPNW >= 0.1 & CPNW <=1~ "2",
+    CPNW >= 1 & CPNW <= 2 ~ "3",
+    CPNW >= 2 & CPNW <= 5 ~ "4",
+    CPNW >= 5 & CPNW <= 10 ~ "5",
+    CPNW >= 10 & CPNW <=25~ "6",
+    CPNW >= 25 & CPNW <=50~ "7",
+    CPNW >= 50 & CPNW <= 75 ~ "8",
+    CPNW >= 75 & CPNW <=95 ~ "9",
+    CPNW >= 95 & CPNW <= 100 ~ "10"),
+CPOUW_Cover = case_when(CPOUW == NA ~ "",
+    CPOUW >= 0 & CPOUW <=0.1~ "1", 
+    CPOUW >= 0.1 & CPOUW <=1~ "2",
+    CPOUW >= 1 & CPOUW <= 2 ~ "3",
+    CPOUW >= 2 & CPOUW <= 5 ~ "4",
+    CPOUW >= 5 & CPOUW <= 10 ~ "5",
+    CPOUW >= 10 & CPOUW <=25~ "6",
+    CPOUW >= 25 & CPOUW <=50~ "7",
+    CPOUW >= 50 & CPOUW <= 75 ~ "8",
+    CPOUW >= 75 & CPOUW <=95 ~ "9",
+    CPOUW >= 95 & CPOUW <= 100 ~ "10"),
+MUFS_Cover = case_when(MUFS == NA ~ "",
+                     MUFS >= 0 & MUFS <=0.1~ "1",
+                     MUFS >= 0.1 & MUFS <=1~ "2",
+                     MUFS >= 1 & MUFS <= 2 ~ "3",
+                     MUFS >= 2 & MUFS <= 5 ~ "4",
+                     MUFS >= 5 & MUFS <= 10 ~ "5",
+                     MUFS >= 10 & MUFS <=25~ "6",
+                     MUFS >= 25 & MUFS <=50~ "7",
+                     MUFS >= 50 & MUFS <= 75 ~ "8",
+                     MUFS >= 75 & MUFS <=95 ~ "9",
+                     MUFS >= 95 & MUFS <= 100 ~ "10")
+    
+  )
+```
+
+
+```{r}
+#Cover Calculations 
+Cover_Calc <- Cover_Calc %>%
+  dplyr::mutate(CPNW_Cover = as.numeric(CPNW_Cover), 
+         CPOUW_Cover = as.numeric(CPOUW_Cover), 
+         MUFS_Cover = as.numeric(MUFS_Cover))
+```
+
+```{r}
+#Finding count of "event_name_date_calc" /species? across broad habitat types 
+#
+
+Constancy_Count <- Constancy_Full %>%
+  dplyr::select(`BROAD HABITAT TYPE`, Species_Original, `Mean Plot Cover`) %>%
+  group_by(`BROAD HABITAT TYPE`, Species_Original) %>%
+  summarise(Species_Total = n()) 
+
+Constancy_Count <- Constancy_Count %>%
+  pivot_wider(
+    names_from = `BROAD HABITAT TYPE`, 
+    values_from = Species_Total
+  )
+
+```
+
+```{r}
+#Calculating total constancy count values not needed (kill your darlings)
+# Constancy_Count <- Constancy_Count %>%
+#   mutate(Grand_Total = rowSums(select_(., "`Coastal Plain Nonalluvial Wetlands`", 
+#                                        "`Coastal Plain Open Uplands and Woodlands`",
+#                                        "`Maritime Upland Forests and Shrublands`"),
+#                                na.rm = TRUE))
+```
+
+
+```{r}
+#Calculating Constancy values 
+Constancy_Count <- Constancy_Count %>%
+  replace(is.na(.), 0) %>%
+  dplyr::mutate(
+    CPNW_Constancy = ((`Coastal Plain Nonalluvial Wetlands`/max(`Coastal Plain Nonalluvial Wetlands`)) * 100),
+    CPOUW_Constancy = ((`Coastal Plain Open Uplands and Woodlands`/max(`Coastal Plain Open Uplands and Woodlands`)) * 100), 
+    MUFS_Constancy = ((`Maritime Upland Forests and Shrublands`/max(`Maritime Upland Forests and Shrublands`))*100 )
+  )
+
+
+round_df <- function(x, digits) {
+    numeric_columns <- sapply(x, mode) == 'numeric'
+    x[numeric_columns] <-  round(x[numeric_columns], digits)
+    x
+}
+
+Constancy_Count <- round_df(Constancy_Count, 0)
+
+```
+
+```{r}
+Cover_Calc_Code <- Cover_Calc %>%
+  dplyr::select(Species_Original, CPNW_Cover, CPOUW_Cover, MUFS_Cover) 
+
+Constancy_Count_Code <- Constancy_Count %>%
+  dplyr::select(Species_Original, CPNW_Constancy, CPOUW_Constancy, MUFS_Constancy) 
+```
+
+```{r}
+Constancy_Final <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(Cover_Calc_Code, Constancy_Count_Code))
+```
+
+
+```{r}
+
+Constancy_Final <- Constancy_Final %>%
+  dplyr::select(Species_Original, CPNW_Constancy, CPNW_Cover, CPOUW_Constancy, CPOUW_Cover, MUFS_Constancy, MUFS_Cover)
+```
+
+```{r}
+Constancy_Final[Constancy_Final == 0] <- NA
+
+Constancy_Final[is.na(Constancy_Final)] <- "-"
+```
+
+
+```{r}
+Constancy_Final_Table <- Constancy_Final %>%
+  gt() %>%
+  cols_label(
+    Species_Original = "Species", 
+    CPNW_Constancy = html("CPNW <br> Constancy"), 
+    CPNW_Cover = html("CPNW <br> Cover"),
+    CPOUW_Constancy = html("CPOUW <br> Constancy"), 
+    CPOUW_Cover = html("CPOUW <br> Cover"), 
+    MUFS_Constancy = html("MUFS <br> Constancy"),
+    MUFS_Cover = html("MUFS <br> Cover")) %>%
+    tab_options(table.font.size = 12,
+              column_labels.border.bottom.color = "black", 
+              column_labels.border.top.color = "black", 
+              stub.border.color = "black", 
+              stub.border.style = "bold",
+              table.font.color = "black", 
+              table.font.weight = "black",
+              column_labels.font.weight = "bold", 
+              data_row.padding = px(2)) %>%
+  cols_width(
+    Species_Original ~ px(175), 
+    everything() ~ px(75)
+  ) %>%
+  tab_style(
+    style = cell_text(style = "italic"),
+    locations = cells_body(
+      columns = Species_Original))
+
+
+
+Constancy_Final_Table
+
+#Constancy_Final_Table %>% gtsave(filename = "TIMUB1_Replicate.html", inline_css = TRUE)
+
+```
+

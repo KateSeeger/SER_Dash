@@ -1,0 +1,315 @@
+---
+title: "speciesdiversityvizgeneral"
+output: html_document
+date: '2023-02-02'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(readr)
+library(RColorBrewer)
+library(patchwork)
+library(knitr)
+library(DT)
+library(gt)
+library(base)
+library(reactable)
+library(htmltools)
+
+#these GENERAL Viz RMDs are to create a flexdashboard compatible/generalized for all networks
+```
+
+```{r}
+species_rich <- read_csv(here::here("DataIn", "SpeciesDiversity_LongFormat.csv"))
+
+#Species_Diversity_ID instead of Plant Code because it only contains genus level not species
+
+#Depth 3 (1m2) - 8 plots
+#Depth 2 (10m2) - 4 plots
+#Depth 1 (100m2) - 4 plots
+
+species_rich <- species_rich %>%
+  tidyr::replace_na(list(Nativity = "Unknown"))
+```
+
+#ORIGINAL CODE
+```{r}
+#Summarizing nativity of species per plot
+#Using Species_Diversity_ID not Plant Code because doesn't account for sp level differences 
+
+species_rich_nativity <- species_rich %>%
+  dplyr::filter(Sample_Depth_Code != 0) %>%
+  dplyr::mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code)
+         ) %>%
+  group_by(Plot_Code, Species_Diversity_ID,
+           Nativity) %>%
+  count(Nativity)
+
+species_rich_nativity <- species_rich_nativity %>%
+  group_by(Plot_Code) %>%
+  count(Nativity)
+
+species_nativity <- species_rich_nativity %>%
+  pivot_wider(
+    names_from = Nativity, 
+    values_from = n
+  )
+
+species_nativity <- species_nativity %>%
+  rename_at(vars(-Plot_Code),function(x) paste0(x,"<sup>a</sup>"))
+
+#<sup>a</sup> added superscript to cell values "i.e. unknown<sup>a</sup>
+#rename_all, deselecting species_diversity_id
+```
+
+```{r}
+#Total Plot Species Richness
+
+species_rich_total <- species_rich %>%
+  dplyr::filter(Sample_Depth_Code != 0) %>%
+  dplyr::mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code),
+         Growth_Form = toupper(Growth_Form)) %>%
+  group_by(Plot_Code, Species_Diversity_ID, Growth_Form)%>%
+  count(Growth_Form)
+
+species_rich_total <- species_rich_total %>%
+  group_by(Plot_Code, Growth_Form) %>%
+  summarize(Count = n())
+
+#manual check BIRT002 HERB == 34 unique species
+```
+
+```{r}
+# Species Richness at the 100m2 level 
+# FORBES WORKFLOW: Find unique number of species per module and then divide by number of subset modules ((n1 + n2 + n3 + n4/4), there are 4, 100m2 plots so we would want to find the species richness average)
+
+species_rich_mod100 <- species_rich %>%
+  dplyr::filter(Sample_Depth_Code != 0) %>%
+  dplyr::mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code), 
+         Growth_Form = toupper(Growth_Form)) %>%
+  group_by(Plot_Code, 
+           Growth_Form,
+           Module, 
+           Species_Diversity_ID) %>%
+  count(Species_Diversity_ID)
+
+#for example in BIRT002 for HERBS in mod 1, there are 22 unique species
+
+species_rich_mod100 <- species_rich_mod100 %>%
+  group_by(Plot_Code, Growth_Form, Module, Species_Diversity_ID) %>%
+  count(Module)
+  
+species_rich_mod100 <- species_rich_mod100 %>%
+  group_by(Plot_Code, Growth_Form, Module) %>%
+  summarize(numSpecies = sum(n))
+  
+species_rich_mod100 <- species_rich_mod100 %>%
+  group_by(Plot_Code, Growth_Form) %>%
+  summarize(Mod100 = mean(numSpecies))
+  
+```
+
+```{r}
+#Species Richness at the 10m2 level 
+
+species_rich_mod10 <- species_rich %>%
+  dplyr::filter(Sample_Depth_Code != 0, 
+         Sample_Depth_Code != 1) %>%
+  dplyr::mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code), 
+         Growth_Form = toupper(Growth_Form)) %>%
+  group_by(Plot_Code, 
+           Growth_Form,
+           Module,
+           Corner,
+           Species_Diversity_ID) %>%
+  count(Species_Diversity_ID)
+
+species_rich_mod10 <- species_rich_mod10 %>%
+  group_by(Plot_Code, 
+           Growth_Form,
+           Module,
+           Corner,
+           Species_Diversity_ID) %>%
+  count(Corner)
+
+species_rich_mod10 <- species_rich_mod10 %>%
+  group_by(Plot_Code, 
+           Growth_Form,
+           Module,
+           Corner) %>%
+  summarize(numSpecies = sum(n))
+  
+species_rich_mod10 <- species_rich_mod10 %>%
+  group_by(Plot_Code, Growth_Form) %>%
+  summarize(Mod10 = mean(numSpecies))
+```
+
+```{r}
+#Species Richness at the 1m2 level 
+
+species_rich_mod1 <- species_rich %>%
+  dplyr::filter(Sample_Depth_Code == 3) %>%
+  dplyr::mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code), 
+         Growth_Form = toupper(Growth_Form)) %>%
+  group_by(Plot_Code, 
+           Growth_Form, 
+           Module,
+           Corner,
+           Species_Diversity_ID) %>%
+  count(Species_Diversity_ID)
+
+species_rich_mod1 <- species_rich_mod1 %>%
+  group_by(Plot_Code, 
+           Growth_Form, 
+           Module, 
+           Corner,
+           Species_Diversity_ID) %>%
+  count(Corner)
+  
+species_rich_mod1 <- species_rich_mod1 %>%
+  group_by(Plot_Code,
+           Growth_Form,
+           Module, 
+           Corner) %>%
+  summarize(numSpecies = sum(n))
+  
+species_rich_mod1 <- species_rich_mod1 %>%
+  group_by(Plot_Code, Growth_Form) %>%
+  summarize(Mod1 = mean(numSpecies))
+```
+
+```{r}
+# Full join of SP Div Tables 
+species_rich_t3 <- Reduce(function (...) { merge(..., all = TRUE) },  
+                           list(species_rich_total, species_rich_mod100, species_rich_mod10, species_rich_mod1))
+```
+
+#GENERAL/AMENDED CODE!
+```{r}
+makeInitials <- function(charVec) {
+  make.unique(vapply(strsplit(toupper(charVec), " "), 
+                     function(x) paste(substr(x, 1, 1), collapse = ""), 
+                     vector("character", 1L)))
+}
+
+species_rich_t3 <- species_rich_t3 %>%
+    mutate(Growth_Form = mapply(function(charVec) makeInitials(charVec), Growth_Form)) #BHT = `GROUP`
+
+
+```
+
+```{r}
+species_rich_t3 <- species_rich_t3 %>%
+  pivot_wider(
+    names_from = Growth_Form, 
+    values_from = c(Count,
+                    Mod100,
+                    Mod10, 
+                    Mod1), 
+    names_prefix = "")
+
+species_rich_t3_full <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(species_nativity, species_rich_t3))
+
+round_df <- function(x, digits) {
+    # round all numeric variables
+    # x: data frame 
+    # digits: number of digits to round
+    numeric_columns <- sapply(x, mode) == 'numeric'
+    x[numeric_columns] <-  round(x[numeric_columns], digits)
+    x
+}
+
+species_rich_t3_full <- round_df(species_rich_t3_full, 1)
+
+species_rich_t3_full <- species_rich_t3_full %>%
+    replace(is.na(.), 0)
+```
+
+```{r}
+species_rich_t3_full <- species_rich_t3_full %>%
+  rename_at(vars(starts_with("Count_")), 
+            list(~paste(.,"<sup>a</sup>"))) %>%
+  rename_at(vars(starts_with("Mod100_")), 
+            list(~paste(.,"<sup>b</sup>"))) %>%
+  rename_at(vars(starts_with("Mod10_")), 
+            list(~paste(., "<sup>c</sup>"))) %>%
+  rename_at(vars(starts_with("Mod1_")), 
+            list(~paste(., "<sup>d</sup>")))
+
+names(species_rich_t3_full) = gsub(pattern = "Count_", replacement = "", x = names(species_rich_t3_full))
+names(species_rich_t3_full) = gsub(pattern = "Mod100_", replacement = "", x = names(species_rich_t3_full))
+names(species_rich_t3_full) = gsub(pattern = "Mod10_", replacement = "", x = names(species_rich_t3_full))
+names(species_rich_t3_full) = gsub(pattern = "Mod1_", replacement = "", x = names(species_rich_t3_full))
+```
+
+
+```{css ref.label="styles", echo=FALSE}
+```
+
+```{r ref.label="font_styles", echo=FALSE}
+```
+
+```{css ref.label="pkgdown_styles", echo=FALSE}
+```
+
+```{r}
+library(reactable)
+library(htmltools)
+
+integer_columns <- function(maxWidth = 70, ...) {
+  colDef(maxWidth = maxWidth, align = "center",...)
+}
+
+reactable::reactable(
+  species_rich_t3_full,
+    defaultColDef = colDef(html = TRUE, 
+                           maxWidth = 50, 
+                           vAlign = "center",
+                           headerVAlign = "bottom",
+                           class = "cell",
+                           headerClass = "header", 
+                           headerStyle = list(fontWeight = 700)),
+    pagination = F, 
+    defaultSorted = "Plot_Code", 
+    defaultSortOrder = "asc",
+  columns = list(
+    `Plot_Code` = colDef(name = "Plot Code", maxWidth = 90, class = "cell") , 
+    `Native<sup>a</sup>` = integer_columns(class = "border-left"), 
+    `Non-Native<sup>a</sup>`= integer_columns(maxWidth = 78, class = "group"), 
+    `Unknown<sup>a</sup>` = integer_columns(maxWidth = 75, class = "group"), 
+    `H <sup>a</sup>` = colDef(class = "border-left"),
+    `H <sup>b</sup>` = colDef(class = "border-left"),
+    `H <sup>c</sup>` = colDef(class = "border-left"),
+    `H <sup>d</sup>` = colDef(class = "border-left"))
+  )
+
+```
+
+```{css styles, eval=FALSE}
+.border-left {
+  border-left: 2px solid #555;
+}
+
+.header { 
+  border-bottom-color: #555;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.group {
+  font-size: 1.1875rem;
+}
+
+.cell {
+  font-size: 1.175rem;
+
+}
+
+```

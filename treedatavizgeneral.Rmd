@@ -1,0 +1,442 @@
+---
+title: "treedatavizgeneral"
+output: html_document
+date: '2023-02-03'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(readr)
+library(RColorBrewer)
+library(patchwork)
+library(knitr)
+library(DT)
+library(webshot2)
+library(gt)
+library(kableExtra)
+library(stringr)
+library(ggthemes)
+
+#these GENERAL Viz RMDs are to create a flexdashboard compatible/generalized for all networks
+
+```
+
+```{r}
+#setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice")
+
+# Reading in CSV files
+
+tree_basics <- read_csv(here::here("DataIn", "TreeBasics_20221013.csv"))
+seedling_sapling <- read_csv(here::here("DataIn", "SeedlingSapling_20221013.csv"))
+cwd_basics <- read_csv(here::here("DataIn", "CWD_Basics_20221013.csv"))
+canopy_cover <- read_csv(here::here("DataIn", "CanopyCover_20221021.csv"))
+USNVC <- read_csv(here::here("DataIn", "USNVC_dev.csv"))
+USNVC_parent <- read_csv(here::here("DataIn", "USNVC.csv"))
+
+
+```
+
+***Replicating Table 4 ***
+
+```{r}
+#Calculating DBH using arithmetic average
+
+seedling_sapling <- seedling_sapling %>%
+  dplyr::mutate(Sapling01_dbh = Sapling_0_1_DBH*0.5, 
+         Sapling12h_dbh = Sapling_1_2half_DBH*1.75, 
+         Sapling2h5_dbh = Sapling_2half_5_DBH*3.25,
+         Sapling510_dbh = Sapling_5_10_DBH*7.5)
+
+#Finding sum of each column per Plot
+seedling_sapling_df <- seedling_sapling %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+  dplyr::select(Plot_Code,Seedling_15_30_Tall, 
+         Seedling_30_50_Tall, 
+         Seedling_50_137_Tall,
+         Sapling01_dbh,
+         Sapling12h_dbh,
+         Sapling2h5_dbh,
+         Sapling510_dbh, 
+         Sapling_0_1_DBH,
+         Sapling_1_2half_DBH, 
+         Sapling_2half_5_DBH,
+         Sapling_5_10_DBH) %>%
+  group_by (Plot_Code) %>%
+  summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+#Finding m2/ha Sapling BA - using Forbes' CODE 
+
+seedling_sapling_df <- seedling_sapling_df %>%
+  dplyr::mutate(
+    Sapling01_BA = (((pi * Sapling01_dbh^2) /40000)/0.008),
+    Sapling12h_BA = (((pi * Sapling12h_dbh ^2) /40000)/0.008),
+    Sapling2h5_BA = (((pi * Sapling2h5_dbh ^2) /40000)/0.008),
+    Sapling510_BA = (((pi * Sapling510_dbh^2) /40000)/0.008)
+)
+  
+options(scipen=999)
+  
+#Finding sums of Sapling/Seedlings/BA
+
+seedling_sapling_df <- seedling_sapling_df %>%
+  group_by(Plot_Code) %>%
+  dplyr::mutate(Seedling_Density = sum(Seedling_15_30_Tall,
+                                Seedling_30_50_Tall,
+                                Seedling_50_137_Tall), 
+         Sapling_BA = sum(Sapling01_BA, 
+                              Sapling12h_BA, 
+                              Sapling2h5_BA,
+                              Sapling510_BA), 
+         Sapling_Density = sum(Sapling_0_1_DBH,
+                               Sapling_1_2half_DBH,
+                               Sapling_2half_5_DBH,
+                               Sapling_5_10_DBH)) 
+
+
+
+woody_stem <- seedling_sapling_df %>%
+  dplyr::select(Plot_Code,
+         Sapling_BA,
+         Sapling_Density,
+         Seedling_Density)
+
+# CUPN_FODO <- WoodyStem %>%
+#    filter(grepl("DONE", Plot_Code))
+
+```
+
+```{r}
+# Creating Tree (BA and Density columns by plot_code)
+# Basal area in square meters = pi * (dbh^2) / 40000
+
+tree_basics_BADEN <- tree_basics %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+  dplyr::mutate(Basal_Area_ha = ((pi * DBH^2) /40000 )/0.04)
+
+#count number of observations of trees for tree density
+tree_obs <- tree_basics_BADEN %>%
+  group_by(Plot_Code) %>%
+  summarize(DBH_Obs = n())
+
+tree_basics_df <- tree_basics_BADEN %>% 
+  dplyr::select(Plot_Code,
+                Basal_Area_ha) %>%
+  group_by (Plot_Code) %>%
+  summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+tree_basics_df <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(tree_basics_df, tree_obs))
+# CUPN_FODO <- tree_basics_df %>%
+#    filter(grepl("DONE", Plot_Code)| 
+#             grepl("HEIM", Plot_Code))
+
+
+# setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice")
+# 
+# write.csv(CUPN_FODO, "CUPN_Tree_FODO_df.csv", row.names = FALSE)
+
+```
+
+```{r}
+#Adding Percent Canopy Cover
+canopy_cover_df <- canopy_cover %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+  dplyr::select(Plot_Code, Module_Code, Canopy_Cover_Percent) %>%
+  group_by(Plot_Code) %>%
+  summarize(Canopy_Cover_Percent = mean(Canopy_Cover_Percent))
+
+```
+
+```{r}
+#Join tables together with a full merge
+
+woodystem_full <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(tree_basics_df, woody_stem, canopy_cover_df))
+
+#rounding function 
+round_df <- function(x, digits) {
+    numeric_columns <- sapply(x, mode) == 'numeric'
+    x[numeric_columns] <-  round(x[numeric_columns], digits)
+    x
+}
+
+woodystem_round <- round_df(woodystem_full, 0)
+
+woody_table <- woodystem_round %>%
+  gt() %>%
+  cols_label(
+    Plot_Code = md("Plot"), 
+    Basal_Area_ha = html("Tree Basal Area, <br> (m<sup>2</sup>/ha)"), 
+    DBH_Obs = html("Tree Density <br> (400m<sup>2</sup>)"), 
+    Seedling_Density = html("Seedling Density <br> (8m<sup>2</sup>)"), 
+    Sapling_BA = html("Sapling Basal Area <br> (m<sup>2</sup>/ha)"), 
+    Sapling_Density = html("Sapling Density <br> (80m<sup>2</sup>)"), 
+    Canopy_Cover_Percent = html("Mean Canopy Cover <br> (%)")
+  ) %>%
+  tab_options(table.font.size = 12,
+              column_labels.border.bottom.color = "black", 
+              column_labels.border.top.color = "black", 
+              stub.border.color = "black", 
+              table.font.color = "black", 
+              table.font.weight = "normal", 
+              column_labels.font.weight = "bold") %>%
+    cols_width(
+    starts_with("Plot_Code") ~ px(150)
+  )
+  
+
+#woody_table %>% gtsave(filename = "Timu4_Replicate.html", inline_css = TRUE) 
+
+  
+```
+
+#GENERAL CODE TO CREATE HTML COMPATIBLE CODE FOR REACTABLE TABLE
+```{r}
+woody_stem_general <- woodystem_round %>%
+  rename(Plot = Plot_Code, 
+    `Tree Basal Area <br> (m<sup>2</sup>/ha)` = Basal_Area_ha, 
+    `Tree Density <br> (400m<sup>2</sup>) ` = DBH_Obs, 
+    `Seedling Density <br> (8m<sup>2</sup>)` = Seedling_Density, 
+    `Sapling Basal Area <br> (m<sup>2</sup>/ha)` = Sapling_BA, 
+    `Sapling Density <br> (80m<sup>2</sup>)` = Sapling_Density, 
+    `Mean Canopy Cover <br> (%)` = Canopy_Cover_Percent)
+
+```
+
+
+***Replicating Appendix Table B2 ***
+
+```{r}
+# Replicating Seedling/Sapling Data per Species Level
+# Only has plant_code NOT species_diverity_ID
+#Same Code except grouping by Plant_Code not Plot_Code
+
+seedling_sapling_b2 <- seedling_sapling %>%
+  dplyr::filter(Event_Type_Name != "QA/QC") %>%
+  dplyr::select(Plant_Code,Seedling_15_30_Tall, 
+         Seedling_30_50_Tall, 
+         Seedling_50_137_Tall,
+         Sapling01_dbh, 
+         Sapling12h_dbh,
+         Sapling2h5_dbh,
+         Sapling510_dbh, 
+         Sapling_0_1_DBH,
+         Sapling_1_2half_DBH, 
+         Sapling_2half_5_DBH, 
+         Sapling_5_10_DBH) %>%
+  group_by (Plant_Code) %>%
+  summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+#Calculating BA for Saplings, using Forbes' equation 
+
+#=(((3.1415/(4*10000))*(0.5)^2)/0.001)*sumsapling
+
+
+seedling_sapling_b2 <- seedling_sapling_b2 %>%
+  dplyr::mutate(
+    Sapling01_BA = ((((pi / (40000)) * (0.5)^2))/0.001)* Sapling01_dbh,
+    Sapling12h_BA = ((((pi / (40000)) * (0.5)^2))/0.001)* Sapling12h_dbh,
+    Sapling2h5_BA = ((((pi / (40000)) * (0.5)^2))/0.001)* Sapling2h5_dbh,
+    Sapling510_BA = ((((pi / (40000)) * (0.5)^2))/0.001)* Sapling510_dbh
+)
+
+#Converting Density to count/HA
+
+seedling_sapling_b2 <- seedling_sapling_b2 %>%
+  dplyr::mutate(
+    Seedling_Den_15_30_Tall = Seedling_15_30_Tall/0.0008,
+    Seedling_Den_30_50_Tall = Seedling_30_50_Tall/0.0008,
+    Seedling_Den_50_137_Tall = Seedling_50_137_Tall/0.0008,
+    Sapling_Den_0_1_DBH = Sapling_0_1_DBH/0.008, 
+    Sapling_Den_1_2half_DBH = Sapling_1_2half_DBH/0.008,
+    Sapling_Den_2half_5_DBH = Sapling_2half_5_DBH/0.008,
+    Sapling_Den_5_10_DBH = Sapling_5_10_DBH/0.008
+  )
+  
+seedling_sapling_b2 <- seedling_sapling_b2 %>%
+  group_by(Plant_Code) %>%
+  dplyr::mutate(Seedling_Density = sum(Seedling_Den_15_30_Tall,
+                                Seedling_Den_30_50_Tall,
+                                Seedling_Den_50_137_Tall), 
+         Sapling_BA = sum(Sapling01_BA, 
+                              Sapling12h_BA,
+                              Sapling2h5_BA, 
+                              Sapling510_BA), 
+         Sapling_Density = sum(Sapling_0_1_DBH, 
+                               Sapling_1_2half_DBH,
+                               Sapling_2half_5_DBH, 
+                               Sapling_5_10_DBH)) 
+
+options(scipen=999)
+
+woody_stem_b2 <- seedling_sapling_b2 %>%
+  dplyr::select(Plant_Code, 
+         Sapling_BA, 
+         Sapling_Density, 
+         Seedling_Density)
+
+
+```
+
+```{r}
+#Calculating Tree BA and Density per Species using tree_basics_BADEN
+#tree_basics_BADEN (Tree Basics BA and Density)
+
+#count number of observations of trees for tree density
+tree_obs_b2 <- tree_basics_BADEN %>%
+  group_by(Plant_Code) %>%
+  summarize(DBH_Obs = n())
+
+tree_basics_b2 <- tree_basics_BADEN %>% 
+  dplyr::select(Plant_Code,
+         Basal_Area_ha) %>%
+  group_by(Plant_Code) %>%
+  summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+tree_basics_b2 <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(tree_basics_b2, tree_obs_b2))
+tree_basics_b2 <- tree_basics_b2 %>%
+  dplyr::mutate(DBH_Obs = DBH_Obs*25)
+  
+```
+
+```{r}
+woodystem_full_b2 <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(tree_basics_b2, woody_stem_b2))
+
+round_df <- function(x, digits) {
+    numeric_columns <- sapply(x, mode) == 'numeric'
+    x[numeric_columns] <-  round(x[numeric_columns], digits)
+    x
+}
+
+woodystem_round_b2 <- round_df(woodystem_full_b2, 2)
+```
+
+```{r}
+woodystem_round_b2_blank <- woodystem_round_b2
+woodystem_round_b2_blank[is.na(woodystem_round_b2)] <- "-"
+```
+
+```{r}
+woody_table_b2 <- woodystem_round_b2_blank %>%
+  gt() %>%
+  cols_label(
+    Plant_Code = md("Species"), 
+    Basal_Area_ha = html("Tree Basal Area, <br> (m<sup>2</sup>/ha)"), 
+    DBH_Obs = html("Tree Density <br> (400m<sup>2</sup>)"), 
+    Seedling_Density = html("Seedling Density <br> (count/ha)"), 
+    Sapling_BA = html("Sapling Basal Area <br> (m<sup>2</sup>/ha)"), 
+    Sapling_Density = html("Sapling Density <br> (count/ha)")
+  ) %>%
+  tab_options(table.font.size = 12,
+              column_labels.border.bottom.color = "black", 
+              column_labels.border.top.color = "black", 
+              stub.border.color = "black", 
+              table.font.color = "black", 
+              table.font.weight = "light", 
+              column_labels.font.weight = "bold") %>%
+  cols_width(
+    starts_with("Plant_Code") ~ px(150)
+  )
+  
+
+#woody_table_b2 
+#write.csv(woody_table_b2, "woody_table_b2.csv", row.names = FALSE)
+#woody_table_b2 %>% gtsave(filename = "TimuB2_Replicate.html", inline_css = TRUE)
+```
+
+#GENERAL CODE TO CREATE HTML COMPATIBLE NAMING
+```{r}
+woody_b2_general <- woodystem_round_b2_blank %>%
+  rename(Species = Plant_Code,
+    `Tree Basal Area <br> (m<sup>2</sup>/ha)` = Basal_Area_ha, 
+    `Tree Density <br> (400m<sup>2</sup>) ` = DBH_Obs, 
+    `Seedling Density <br> (8m<sup>2</sup>)` = Seedling_Density, 
+    `Sapling Basal Area <br> (m<sup>2</sup>/ha)` = Sapling_BA, 
+    `Sapling Density <br> (80m<sup>2</sup>)` = Sapling_Density)
+```
+
+#REACTABLE TABLE!!!
+```{css ref.label="styles", echo=FALSE}
+```
+
+```{r ref.label="font_styles", echo=FALSE}
+```
+
+```{css ref.label="pkgdown_styles", echo=FALSE}
+```
+
+```{r}
+library(reactable) 
+library(reactablefmtr) 
+library(htmltools)
+```
+
+```{r}
+reactable::reactable(
+  woody_stem_general,
+    defaultColDef = colDef(html = T, 
+                           vAlign = "center",
+                           headerVAlign = "bottom",
+                           class = "cell",
+                           headerClass = "header", 
+                           headerStyle = list(fontWeight = 700), 
+                           align = "left"), 
+    pagination = F, 
+    defaultSorted = "Plot", 
+    defaultSortOrder = "asc",
+  fullWidth = T,
+    columns = list(
+      Plot = colDef(name = "Plot Code", maxWidth = 150)
+    )
+    )
+```
+
+
+#WOODY DATA, B2 TABLE BY SPECIES
+```{r}
+reactable::reactable(
+  woody_b2_general,
+    defaultColDef = colDef(html = T, 
+                           vAlign = "center",
+                           headerVAlign = "bottom",
+                           class = "cell",
+                           headerClass = "header", 
+                           headerStyle = list(fontWeight = 700), 
+                           align= "left"), 
+    pagination = F, 
+    defaultSorted = "Species", 
+    defaultSortOrder = "asc",
+  fullWidth = T,
+    columns = list(
+      Species = colDef(maxWidth = 150)
+    )
+    )
+```
+
+```{css styles, eval=FALSE}
+.border-left {
+  border-left: 2px solid #555;
+}
+
+.header { 
+  border-bottom-color: #555;
+  border-top-color: #555;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.group {
+  font-size: 1.1875rem;
+}
+
+```

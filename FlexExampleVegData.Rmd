@@ -1,0 +1,191 @@
+---
+title: "Veg Data"
+output: 
+  flexdashboard::flex_dashboard:
+    theme: yeti
+    orientation: columns
+
+---
+
+```{r setup, include=FALSE}
+
+rm(list=ls())
+
+pkgs <- c(
+  "shiny",
+  "tidyr", 
+  "dplyr",
+  "ggplot2", 
+  "readr", 
+  "RColorBrewer",
+  "knitr", 
+  "flexdashboard", 
+  "tidyverse", 
+  "lubridate", 
+  "scales", 
+  "patchwork",
+  "plotly",
+  "reactable", 
+  "DT",
+  "data.table",
+  "sf",
+  "tmap",
+  "leaflet",
+  "crosstalk"
+)
+installed_pkgs <- pkgs %in% installed.packages()
+if (length(pkgs[!installed_pkgs]) > 0) install.packages(pkgs[!installed_pkgs], repos = "https://cloud.r-project.org" , dep=TRUE) 
+
+invisible(lapply(pkgs, library, character.only = TRUE))
+
+```
+
+```{r}
+TreeBasics <- read_csv(here::here("DataIn", "TreeBasics_20221013.csv"))
+
+SeedlingSapling <- read_csv(here::here("DataIn", "SeedlingSapling_20221013.csv"))
+
+CWD_Basics <- read_csv(here::here("DataIn", "CWD_Basics_20221013.csv"))
+
+DF_Dieback <- as.data.frame(prop.table(table(TreeBasics$Dieback_Name)))
+```
+
+
+```{r}
+#Creating palette 
+palette_vigor <- (rev(brewer.pal(5, "RdYlGn")))
+
+#VIGOR DATA
+
+#Proportion Data frame for Vigor Data 
+DF_Vigor <- as.data.frame(prop.table(table(TreeBasics$Vigor_Name)))
+
+#Filtering out Functionally Dead as seen in TIMU report
+DF_Vigor <- DF_Vigor %>%
+  filter(Var1 != "Functionally Dead")
+
+#STATUS DATA
+#Proportion Data frame for Status Data
+DF_Status_Code <- as.data.frame(prop.table(table(TreeBasics$Status_Name)))
+
+#Filtering out certain variables
+DF_Status_Code <- DF_Status_Code %>%
+  filter(Var1 != "No Status") %>%
+  filter(Var1 != "Removed")
+
+#CROWN DATA
+DF_Crown_Name <- as.data.frame(prop.table(table(TreeBasics$Crown_Name)))
+
+```
+
+```{r}
+DF_Crown_Name <- DF_Crown_Name %>%
+  arrange(desc(Freq))
+
+DF_Dieback <- DF_Dieback %>%
+    arrange(desc(Freq))
+
+DF_Status_Code <- DF_Status_Code %>%
+    arrange(desc(Freq))
+
+DF_Vigor <- DF_Vigor %>%
+    arrange(desc(Freq))
+
+```
+
+
+Health Condition of Trees {data-orientation=columns}
+=======================================================================
+
+
+Column {}
+-----------------------------------------------------------------------
+```{r, fig.width=7, fig.height=3}
+
+colors <- c("rgb(0, 109, 44)", "rgb(49,163,84)", "rgb(116,196,118)","rgb(186,228,179)", "rgb(237,248,233)" )
+  
+
+fig_vigor <- plot_ly(DF_Vigor, 
+                     labels = ~Var1, 
+                     values = ~Freq, 
+                     type = "pie",
+                     marker = list(colors = colors)) 
+
+
+fig_vigor <- fig_vigor %>% layout(title ="Tree Health Vigor",     
+                                  xaxis = list(showgrid = FALSE,
+                                               zeroline = FALSE, 
+                                               showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE,
+                      zeroline = FALSE,
+                      showticklabels = FALSE)
+                      )  
+
+fig_vigor
+```
+
+
+
+```{r, fig.width=7, fig.height=3}
+fig_status <- plot_ly(DF_Status_Code, 
+                      labels = ~Var1, 
+                      values = ~Freq,
+                      type = "pie",
+                      marker = list(colors = colors)) 
+
+fig_status <- fig_status %>% layout(title ="Tree Health Status",     
+                                  xaxis = list(showgrid = FALSE,
+                                               zeroline = FALSE, 
+                                               showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE,
+                      zeroline = FALSE,
+                      showticklabels = FALSE)
+                      )
+
+fig_status
+```
+
+
+Column {}
+-----------------------------------------------------------------------
+
+```{r, fig.width=7, fig.height=3}
+
+fig_dieback <- plot_ly(DF_Dieback,
+                       labels = ~Var1, 
+                       values = ~Freq,
+                       type = "pie", 
+                       marker = list(colors = colors))
+
+fig_dieback <- fig_dieback %>% layout(title ="Tree Health Dieback",     
+                                  xaxis = list(showgrid = FALSE,
+                                               zeroline = FALSE, 
+                                               showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE,
+                      zeroline = FALSE,
+                      showticklabels = FALSE)
+                      )
+
+fig_dieback
+```
+
+
+```{r,  fig.width=7, fig.height=3}
+
+fig_crown <- plot_ly(DF_Crown_Name, 
+                     labels = ~Var1,
+                     values = ~Freq, 
+                     type = "pie", 
+                     marker = list(colors = colors))
+
+fig_crown <- fig_crown %>% layout(title ="Tree Health Crown Class",     
+                                  xaxis = list(showgrid = FALSE,
+                                               zeroline = FALSE, 
+                                               showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE,
+                      zeroline = FALSE,
+                      showticklabels = FALSE)
+                      )
+
+fig_crown
+```

@@ -1,0 +1,458 @@
+---
+title: "QAQC_SaplingSeedling"
+output: html_document
+date: "2023-03-01"
+---
+
+***CHECKING QAQC PLOTS FOR Seedling/Sapling DBH/BA Summary Stats***
+```{r}
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(readr)
+library(RColorBrewer)
+library(patchwork)
+library(knitr)
+library(DT)
+library(webshot2)
+library(gt)
+library(kableExtra)
+library(stringr)
+library(lubridate)
+library(ggthemes)
+```
+
+```{r}
+#setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice")
+
+# Reading in CSV files
+SeedlingSapling <- read_csv(here::here("DataIn", "SeedlingSapling_20221013.csv"))
+
+```
+
+```{r}
+#SeedlingSaplingQAQC
+
+SeedlingSapling$Year <- year(mdy(SeedlingSapling$Start_Date))
+
+SSQAQC <- SeedlingSapling %>%
+  dplyr::filter(Event_Type_Name == "QA/QC")
+
+SSListQAQC <- unique(SSQAQC$Plot_Code)
+
+SSList <- SeedlingSapling %>%
+  dplyr::filter(Plot_Code %in% SSListQAQC)
+
+SSEstablishment <- SSList %>%
+  dplyr::filter(Event_Type_Name == "Plot Establishment")
+
+SSRevisit <- SSList %>%
+  dplyr::filter(Event_Type_Name == "Plot Revisit") 
+
+SSQAQC <- SSList %>%
+  dplyr::filter(Event_Type_Name == "QA/QC")
+
+SSEstablishment
+SSRevisit
+SSQAQC
+```
+
+```{r}
+#Redundant code for SeedlingSapling Data
+#Somehow some plots DBHs are insanely different - trying to figure out which plots were actually QAQC'd  
+SSRevisit_num <- SSRevisit %>%
+  dplyr::group_by(Plot_Code, Year) %>%
+  dplyr::summarize(n())
+  
+SSQAQC_num <- SSQAQC %>%
+  dplyr::group_by(Plot_Code, Year) %>%
+  dplyr::summarize(n())
+
+SSEst_num <- SSEstablishment %>%
+  dplyr::group_by(Plot_Code, Year) %>%
+  dplyr::summarize(n())
+
+```
+
+```{r}
+SSrevisit <- full_join(SSRevisit_num, SSQAQC_num, by = c("Plot_Code", "Year"))
+
+SSest <- full_join(SSEst_num, SSQAQC_num, by = c("Plot_Code", "Year"))
+
+#Full join adds together all values and puts NA for non matching values , 
+#NA values are not the correct QAQC plots to be comparing 
+
+SSrevisit <- SSrevisit %>%
+  drop_na()
+
+SSest <- SSest %>%
+  drop_na()
+
+SSrevisit
+SSest
+
+SSrevisit <- SSrevisit %>%
+  dplyr::select(Plot_Code, Year)
+
+SSest <- SSest %>%
+  dplyr::select(Plot_Code, Year)
+
+```
+
+```{r}
+
+SSRevisit<- left_join(SSrevisit, SSRevisit, by = c("Plot_Code", "Year"))
+  
+SSEstablishment <- left_join(SSest, SSEstablishment, by = c("Plot_Code", "Year"))
+
+SSQAQC_revisit <- left_join(SSrevisit, SSQAQC, by = c("Plot_Code", "Year"))
+
+SSQAQC_est <- left_join(SSest, SSQAQC, by = c("Plot_Code", "Year"))
+
+
+```
+
+#Seedling Sapling REVISIT PLOTS
+
+```{r}
+#Calculating DBH using arithmetic average
+
+SSRevisit <- SSRevisit %>%
+  dplyr::mutate(Sapling01_dbh = Sapling_0_1_DBH*0.5, 
+         Sapling12h_dbh = Sapling_1_2half_DBH*1.75, 
+         Sapling2h5_dbh = Sapling_2half_5_DBH*3.25,
+         Sapling510_dbh = Sapling_5_10_DBH*7.5)
+
+#Finding sum of each column per Plot
+SSRevisit_df <- SSRevisit %>%
+  dplyr::select(Plot_Code, Year, Seedling_15_30_Tall, 
+         Seedling_30_50_Tall, 
+         Seedling_50_137_Tall,
+         Sapling01_dbh,
+         Sapling12h_dbh,
+         Sapling2h5_dbh,
+         Sapling510_dbh, 
+         Sapling_0_1_DBH,
+         Sapling_1_2half_DBH, 
+         Sapling_2half_5_DBH,
+         Sapling_5_10_DBH) %>%
+  dplyr::group_by (Plot_Code, Year) %>%
+  dplyr::summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+#Finding m2/ha Sapling BA - using Forbes' CODE 
+
+SSRevisit_df <- SSRevisit_df %>%
+  dplyr::mutate(
+    Sapling01_BA = (((pi * Sapling01_dbh^2) /40000)/0.008),
+    Sapling12h_BA = (((pi * Sapling12h_dbh ^2) /40000)/0.008),
+    Sapling2h5_BA = (((pi * Sapling2h5_dbh ^2) /40000)/0.008),
+    Sapling510_BA = (((pi * Sapling510_dbh^2) /40000)/0.008)
+)
+  
+options(scipen=999)
+  
+#Finding sums of Sapling/Seedlings/BA
+
+SSRevisit_df <- SSRevisit_df %>%
+  dplyr::group_by(Plot_Code, Year) %>%
+  dplyr::mutate(Seedling_Density = sum(Seedling_15_30_Tall,
+                                Seedling_30_50_Tall,
+                                Seedling_50_137_Tall), 
+         Sapling_BA = sum(Sapling01_BA, 
+                              Sapling12h_BA, 
+                              Sapling2h5_BA,
+                              Sapling510_BA), 
+         Sapling_Density = sum(Sapling_0_1_DBH,
+                               Sapling_1_2half_DBH,
+                               Sapling_2half_5_DBH,
+                               Sapling_5_10_DBH)) 
+
+
+
+SSRevisit_df <- SSRevisit_df  %>%
+  dplyr::select(Plot_Code,
+                Year,
+         Sapling_BA,
+         Sapling_Density, 
+         Seedling_Density)
+
+```
+
+
+```{r}
+#Seedling Sapling REVISIT PLOTS
+#Calculating DBH using arithmetic average
+
+SSQAQC_revisit <- SSQAQC_revisit %>%
+  dplyr::mutate(Sapling01_dbh = Sapling_0_1_DBH*0.5, 
+         Sapling12h_dbh = Sapling_1_2half_DBH*1.75, 
+         Sapling2h5_dbh = Sapling_2half_5_DBH*3.25,
+         Sapling510_dbh = Sapling_5_10_DBH*7.5)
+
+#Finding sum of each column per Plot
+SSQAQCrv_df <- SSQAQC_revisit %>%
+  dplyr::select(Plot_Code, Year, Seedling_15_30_Tall, 
+         Seedling_30_50_Tall, 
+         Seedling_50_137_Tall,
+         Sapling01_dbh,
+         Sapling12h_dbh,
+         Sapling2h5_dbh,
+         Sapling510_dbh, 
+         Sapling_0_1_DBH,
+         Sapling_1_2half_DBH, 
+         Sapling_2half_5_DBH,
+         Sapling_5_10_DBH) %>%
+  dplyr::group_by (Plot_Code, Year) %>%
+  dplyr::summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+#Finding m2/ha Sapling BA - using Forbes' CODE 
+
+SSQAQCrv_df <- SSQAQCrv_df %>%
+  dplyr::mutate(
+    Sapling01_BA = (((pi * Sapling01_dbh^2) /40000)/0.008),
+    Sapling12h_BA = (((pi * Sapling12h_dbh ^2) /40000)/0.008),
+    Sapling2h5_BA = (((pi * Sapling2h5_dbh ^2) /40000)/0.008),
+    Sapling510_BA = (((pi * Sapling510_dbh^2) /40000)/0.008)
+)
+  
+options(scipen=999)
+  
+#Finding sums of Sapling/Seedlings/BA
+
+SSQAQCrv_df <- SSQAQCrv_df %>%
+  dplyr::group_by(Plot_Code, Year) %>%
+  dplyr::mutate(Seedling_Density = sum(Seedling_15_30_Tall,
+                                Seedling_30_50_Tall,
+                                Seedling_50_137_Tall), 
+         Sapling_BA = sum(Sapling01_BA, 
+                              Sapling12h_BA, 
+                              Sapling2h5_BA,
+                              Sapling510_BA), 
+         Sapling_Density = sum(Sapling_0_1_DBH,
+                               Sapling_1_2half_DBH,
+                               Sapling_2half_5_DBH,
+                               Sapling_5_10_DBH)) 
+
+
+
+SSQAQCrv_df <- SSQAQCrv_df  %>%
+  dplyr::select(Plot_Code,
+                Year,
+         Sapling_BA,
+         Sapling_Density, 
+         Seedling_Density)
+
+```
+
+
+```{r}
+SSRevisit_df
+
+SSQAQCrv_df
+
+QAQC_rv <- full_join(SSRevisit_df, SSQAQCrv_df, by = c("Plot_Code", "Year"))
+
+QAQC_rv <- QAQC_rv %>%
+  drop_na() %>%
+  dplyr::select(Plot_Code, Year, Sapling_BA.x, Sapling_BA.y, Sapling_Density.x, Sapling_Density.y, Seedling_Density.x, Seedling_Density.y)
+
+QAQC_rv
+```
+
+```{r}
+#IN CHIC010 there are naming errors 
+#Some trees are marked in different plots - are we trusting that the tree number refers to the correct tree?
+#Positive number means that the QAQC was higher than the plot revisit
+
+QAQC_Vis <- QAQC_rv %>%
+  dplyr::mutate(BA_Difference = Sapling_BA.y - Sapling_BA.x, 
+         Sap_Density_Difference = Sapling_Density.y - Sapling_Density.x, 
+         Seed_Density_Difference = Seedling_Density.y- Seedling_Density.x)
+
+QAQC_Vis %>%
+  ggplot(aes(x = BA_Difference, y = Plot_Code)) + geom_point()
+
+QAQC_Vis %>%
+  ggplot(aes(x = Sap_Density_Difference, y = Plot_Code)) + geom_point()
+
+QAQC_Vis %>%
+  ggplot(aes(x = Seed_Density_Difference, y = Plot_Code)) + geom_point()
+
+```
+
+#Seedling Sapling Establish PLOTS
+
+```{r}
+#Calculating DBH using arithmetic average
+
+SSEstablishment <- SSEstablishment %>%
+  dplyr::mutate(Sapling01_dbh = Sapling_0_1_DBH*0.5, 
+         Sapling12h_dbh = Sapling_1_2half_DBH*1.75, 
+         Sapling2h5_dbh = Sapling_2half_5_DBH*3.25,
+         Sapling510_dbh = Sapling_5_10_DBH*7.5)
+
+#Finding sum of each column per Plot
+ SSEstablishment_df <-  SSEstablishment %>%
+  dplyr::select(Plot_Code, Year, Seedling_15_30_Tall, 
+         Seedling_30_50_Tall, 
+         Seedling_50_137_Tall,
+         Sapling01_dbh,
+         Sapling12h_dbh,
+         Sapling2h5_dbh,
+         Sapling510_dbh, 
+         Sapling_0_1_DBH,
+         Sapling_1_2half_DBH, 
+         Sapling_2half_5_DBH,
+         Sapling_5_10_DBH) %>%
+  dplyr::group_by (Plot_Code, Year) %>%
+  dplyr::summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+#Finding m2/ha Sapling BA - using Forbes' CODE 
+
+SSEstablishment_df <-  SSEstablishment_df %>%
+  dplyr::mutate(
+    Sapling01_BA = (((pi * Sapling01_dbh^2) /40000)/0.008),
+    Sapling12h_BA = (((pi * Sapling12h_dbh ^2) /40000)/0.008),
+    Sapling2h5_BA = (((pi * Sapling2h5_dbh ^2) /40000)/0.008),
+    Sapling510_BA = (((pi * Sapling510_dbh^2) /40000)/0.008)
+)
+  
+options(scipen=999)
+  
+#Finding sums of Sapling/Seedlings/BA
+
+SSEstablishment_df <- SSEstablishment_df %>%
+  dplyr::group_by(Plot_Code, Year) %>%
+  dplyr::mutate(Seedling_Density = sum(Seedling_15_30_Tall,
+                                Seedling_30_50_Tall,
+                                Seedling_50_137_Tall), 
+         Sapling_BA = sum(Sapling01_BA, 
+                              Sapling12h_BA, 
+                              Sapling2h5_BA,
+                              Sapling510_BA), 
+         Sapling_Density = sum(Sapling_0_1_DBH,
+                               Sapling_1_2half_DBH,
+                               Sapling_2half_5_DBH,
+                               Sapling_5_10_DBH)) 
+
+
+
+SSEstablishment_df <- SSEstablishment_df  %>%
+  dplyr::select(Plot_Code,
+                Year,
+         Sapling_BA,
+         Sapling_Density, 
+         Seedling_Density)
+
+```
+
+
+```{r}
+#Seedling Sapling REVISIT PLOTS
+#Calculating DBH using arithmetic average
+
+SSQAQC_est <- SSQAQC_est %>%
+  dplyr::mutate(Sapling01_dbh = Sapling_0_1_DBH*0.5, 
+         Sapling12h_dbh = Sapling_1_2half_DBH*1.75, 
+         Sapling2h5_dbh = Sapling_2half_5_DBH*3.25,
+         Sapling510_dbh = Sapling_5_10_DBH*7.5)
+
+#Finding sum of each column per Plot
+SSQAQCest_df <- SSQAQC_est %>%
+  dplyr::select(Plot_Code, Year, Seedling_15_30_Tall, 
+         Seedling_30_50_Tall, 
+         Seedling_50_137_Tall,
+         Sapling01_dbh,
+         Sapling12h_dbh,
+         Sapling2h5_dbh,
+         Sapling510_dbh, 
+         Sapling_0_1_DBH,
+         Sapling_1_2half_DBH, 
+         Sapling_2half_5_DBH,
+         Sapling_5_10_DBH) %>%
+  dplyr::group_by (Plot_Code, Year) %>%
+  dplyr::summarise(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+#Finding m2/ha Sapling BA - using Forbes' CODE 
+
+SSQAQCest_df <- SSQAQCest_df %>%
+  dplyr::mutate(
+    Sapling01_BA = (((pi * Sapling01_dbh^2) /40000)/0.008),
+    Sapling12h_BA = (((pi * Sapling12h_dbh ^2) /40000)/0.008),
+    Sapling2h5_BA = (((pi * Sapling2h5_dbh ^2) /40000)/0.008),
+    Sapling510_BA = (((pi * Sapling510_dbh^2) /40000)/0.008)
+)
+  
+options(scipen=999)
+  
+#Finding sums of Sapling/Seedlings/BA
+
+SSQAQCest_df <- SSQAQCest_df %>%
+  dplyr::group_by(Plot_Code, Year) %>%
+  dplyr::mutate(Seedling_Density = sum(Seedling_15_30_Tall,
+                                Seedling_30_50_Tall,
+                                Seedling_50_137_Tall), 
+         Sapling_BA = sum(Sapling01_BA, 
+                              Sapling12h_BA, 
+                              Sapling2h5_BA,
+                              Sapling510_BA), 
+         Sapling_Density = sum(Sapling_0_1_DBH,
+                               Sapling_1_2half_DBH,
+                               Sapling_2half_5_DBH,
+                               Sapling_5_10_DBH)) 
+
+
+
+SSQAQCest_df <- SSQAQCest_df  %>%
+  dplyr::select(Plot_Code,
+                Year,
+         Sapling_BA,
+         Sapling_Density, 
+         Seedling_Density)
+
+```
+
+
+```{r}
+SSEstablishment_df
+#x
+
+SSQAQCest_df
+#y
+
+QAQC_est <- full_join(SSEstablishment_df, SSQAQCest_df, by = c("Plot_Code", "Year"))
+
+QAQC_est <- QAQC_est %>%
+  drop_na() %>%
+  dplyr::select(Plot_Code, Year, Sapling_BA.x, Sapling_BA.y, Sapling_Density.x, Sapling_Density.y, Seedling_Density.x, Seedling_Density.y)
+
+QAQC_est
+```
+
+```{r}
+#IN CHIC010 there are naming errors 
+#Some trees are marked in different plots - are we trusting that the tree number refers to the correct tree?
+#Positive number means that the QAQC was higher than the plot revisit
+
+QAQC_Vis <- QAQC_est %>%
+  dplyr::mutate(BA_Difference = Sapling_BA.y - Sapling_BA.x, 
+         Sap_Density_Difference = Sapling_Density.y - Sapling_Density.x, 
+         Seed_Density_Difference = Seedling_Density.y- Seedling_Density.x)
+
+QAQC_Vis %>%
+  ggplot(aes(x = BA_Difference, y = Plot_Code)) + geom_point()
+
+QAQC_Vis %>%
+  ggplot(aes(x = Sap_Density_Difference, y = Plot_Code)) + geom_point()
+
+QAQC_Vis %>%
+  ggplot(aes(x = Seed_Density_Difference, y = Plot_Code)) + geom_point()
+
+```
+
+
+
+
+

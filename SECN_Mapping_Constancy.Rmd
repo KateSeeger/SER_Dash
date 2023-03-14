@@ -1,0 +1,271 @@
+---
+title: "SECN_Mapping_Constancy"
+output: html_document
+date: '2023-01-05'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+###I THINK THAT CONSTAnCY IS A BAD VARIABLE TO GRAPH BECAUSE IT IS FREQUENCY OF SPECIES OVER SPECIFIC AREA, TOO MANY SPECIES TO SHOW PER PLOT
+
+Map 2: Tree Regeneration By Size Class
+Map 5: Regeneration Composition
+Map 6: Canopy Composition
+Map 8: Priority Invasive Composition
+Map 8b: Not done by NETN, but agreed that we'd all like a map of relative abundance of Native versus Exotic by plot.  Should be very straightforward, two colors (one for native, one for exotic)
+
+```{r}
+library(ggplot2)
+library(readr)
+library(knitr)
+library(base)
+library(stringr)
+library(gt)
+library(psych)
+library(tidyverse) 
+library(dplyr)
+library(httr)
+library(rgdal) 
+library(sf) 
+library(RColorBrewer)
+library(sp) 
+library(rgeos)
+library(leaflet)
+library(leaflet.minicharts)
+library(mapview)
+```
+
+```{r}
+#Set Working Directory
+setwd("C:/Users/kseeger/OneDrive - DOI/Desktop/GIT_RSTUDIO/FlexdashboardPractice/Mapping/SECN")
+constancy <- read_csv("Constancy_Data.csv")
+constancy_full <- read_csv("Constancy_Data_Full.csv")
+```
+
+```{r}
+#OKABE PALETTE
+
+okabe_ito <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", 
+               "#CC79A7", "#000000",  '#CC6677','#DDDDDD', '#EE6677', '#99DDFF', 
+               '#BBCC33', '#332288', '#882255', '#FFAABB')
+# 
+# color_pallete_function <- colorRampPalette(
+#   colors = Okabe_Ito, 
+#   space = "Lab")
+# 
+# num_colors <- nlevels(BISCCHH_SP_Rich$Species)
+# okabepalette <- color_pallete_function(num_colors)
+# okabepalette <- setNames(okabepalette, levels(BISCCHH_SP_Rich$Species))
+
+```
+
+```{r}
+# BISCMAN PLOTS
+TIMUboundary <- st_read('./SECN_SamplingFrame/TIMU/TIMU_TR_SampleFrame_Jan2020.shp')
+
+st_crs(TIMUboundary)
+
+plot(TIMUboundary)
+```
+
+#importing CARL Shapefile
+```{r}
+park_code <- "TIMU"
+  # KATE, ENTER 4-LETTER PARK CODE HERE
+  
+unitBoundaryURL_TIMU<- paste0("https://services1.arcgis.com/fBc8EJBxQRMcHlei/ArcGIS/rest/services/IMD_Units_Generic_areas_of_analysis_(AOAs)_-_IMD_BND_ALL_UNITS_AOA_nad_py_view/FeatureServer/0/query?where=UNITCODE+%3D+%27", park_code, "%27&objectIds=&time=&geometry=&geometryType=esriGeometryEnvelope&inSR=&spatialRel=esriSpatialRelIntersects&distance=&units=esriSRUnit_Meter&relationParam=&outFields=*&returnGeometry=true&maxAllowableOffset=&geometryPrecision=&outSR=4326&gdbVersion=&returnDistinctValues=false&returnIdsOnly=false&returnCountOnly=false&returnExtentOnly=false&orderByFields=&groupByFieldsForStatistics=&outStatistics=&returnZ=false&returnM=false&resultOffset=&resultRecordCount=&f=geojson") # save output as WGS84
+
+#paste(unitBoundaryURL)
+```
+
+```{r}
+#checking error code below
+imported_dat_TIMU <- tryCatch(readOGR(dsn = unitBoundaryURL_TIMU, dropNULLGeometries = FALSE), error=function(e) print("Error retrieving data")) # return error message if problems still arise with downloading from web services
+
+#shiny::req(class(imported_dat)=="SpatialPolygonsDataFrame")
+imported_dat_TIMU <- sp::spTransform(imported_dat_TIMU, CRS("+proj=longlat +datum=WGS84")) # convert to WGS84
+
+plot(imported_dat_TIMU)
+```
+
+
+
+
+#Altering Constancy_Full dataset 
+```{r}
+constancy_full <- constancy_full%>%
+  separate(event_name_date_calc, c("Plot_Code", "Date"))
+
+constancy_full
+
+constancy_calc <- constancy_full %>%
+  dplyr::select(Plot_Code, 
+                Species_Original,
+                `Mean Plot Cover`) %>%
+  group_by(Plot_Code,
+           Species_Original) %>%
+  summarise(Avg_MPC = mean(`Mean Plot Cover`)) 
+```
+
+#Finding the total number of species in each of the broadly defined habitats
+```{r}
+
+
+constancy_full %>%
+  dplyr::select(`BROAD HABITAT TYPE`, Plot_Code) %>%
+  group_by(`BROAD HABITAT TYPE`) %>%
+  summarize(count_dis = n_distinct(Plot_Code))
+```
+
+#Calculating constancy
+```{r}
+Constancy_Count <- Constancy_Full %>%
+  dplyr::select(`BROAD HABITAT TYPE`, Species_Original, `Mean Plot Cover`) %>%
+  group_by(`BROAD HABITAT TYPE`, Species_Original) %>%
+  summarise(Species_Total = n()) 
+```
+
+
+```{r}
+#Finding Average Mean Plot Cover by Species across broad habitat types
+Constancy_Calc <- Constancy_Full %>%
+  dplyr::select(`BROAD HABITAT TYPE`, 
+                Species_Original,
+                `Mean Plot Cover`) %>%
+  group_by(`BROAD HABITAT TYPE`,
+           Species_Original) %>%
+  summarise(Avg_MPC = mean(`Mean Plot Cover`)) 
+
+#Pivoting
+Constancy_Calc <- Constancy_Calc %>%
+  pivot_wider(
+    names_from = `BROAD HABITAT TYPE`, 
+    values_from = Avg_MPC
+  )
+
+Constancy_Calc <- Constancy_Calc %>%
+  rename(CPNW = `Coastal Plain Nonalluvial Wetlands`, 
+         CPOUW = `Coastal Plain Open Uplands and Woodlands`, 
+         MUFS = `Maritime Upland Forests and Shrublands`)
+
+```
+
+```{r}
+#Calculating Cover Code
+#Is it worth it to figure out for loops???
+
+Cover_Calc <- Constancy_Calc %>%
+  dplyr::mutate(CPNW_Cover = case_when(
+    CPNW == NA ~ "",
+    CPNW >= 0 & CPNW <=0.1~ "1", 
+    CPNW >= 0.1 & CPNW <=1~ "2",
+    CPNW >= 1 & CPNW <= 2 ~ "3",
+    CPNW >= 2 & CPNW <= 5 ~ "4",
+    CPNW >= 5 & CPNW <= 10 ~ "5",
+    CPNW >= 10 & CPNW <=25~ "6",
+    CPNW >= 25 & CPNW <=50~ "7",
+    CPNW >= 50 & CPNW <= 75 ~ "8",
+    CPNW >= 75 & CPNW <=95 ~ "9",
+    CPNW >= 95 & CPNW <= 100 ~ "10"),
+CPOUW_Cover = case_when(CPOUW == NA ~ "",
+    CPOUW >= 0 & CPOUW <=0.1~ "1", 
+    CPOUW >= 0.1 & CPOUW <=1~ "2",
+    CPOUW >= 1 & CPOUW <= 2 ~ "3",
+    CPOUW >= 2 & CPOUW <= 5 ~ "4",
+    CPOUW >= 5 & CPOUW <= 10 ~ "5",
+    CPOUW >= 10 & CPOUW <=25~ "6",
+    CPOUW >= 25 & CPOUW <=50~ "7",
+    CPOUW >= 50 & CPOUW <= 75 ~ "8",
+    CPOUW >= 75 & CPOUW <=95 ~ "9",
+    CPOUW >= 95 & CPOUW <= 100 ~ "10"),
+MUFS_Cover = case_when(MUFS == NA ~ "",
+                     MUFS >= 0 & MUFS <=0.1~ "1",
+                     MUFS >= 0.1 & MUFS <=1~ "2",
+                     MUFS >= 1 & MUFS <= 2 ~ "3",
+                     MUFS >= 2 & MUFS <= 5 ~ "4",
+                     MUFS >= 5 & MUFS <= 10 ~ "5",
+                     MUFS >= 10 & MUFS <=25~ "6",
+                     MUFS >= 25 & MUFS <=50~ "7",
+                     MUFS >= 50 & MUFS <= 75 ~ "8",
+                     MUFS >= 75 & MUFS <=95 ~ "9",
+                     MUFS >= 95 & MUFS <= 100 ~ "10")
+    
+  )
+```
+
+
+```{r}
+#Cover Calculations 
+Cover_Calc <- Cover_Calc %>%
+  dplyr::mutate(CPNW_Cover = as.numeric(CPNW_Cover), 
+         CPOUW_Cover = as.numeric(CPOUW_Cover), 
+         MUFS_Cover = as.numeric(MUFS_Cover))
+```
+
+```{r}
+#Finding count of "event_name_date_calc" /species? across broad habitat types 
+#
+
+Constancy_Count <- Constancy_Full %>%
+  dplyr::select(`BROAD HABITAT TYPE`, Species_Original, `Mean Plot Cover`) %>%
+  group_by(`BROAD HABITAT TYPE`, Species_Original) %>%
+  summarise(Species_Total = n()) 
+
+Constancy_Count <- Constancy_Count %>%
+  pivot_wider(
+    names_from = `BROAD HABITAT TYPE`, 
+    values_from = Species_Total
+  )
+
+```
+
+```{r}
+#Calculating Constancy values 
+Constancy_Count <- Constancy_Count %>%
+  replace(is.na(.), 0) %>%
+  dplyr::mutate(
+    CPNW_Constancy = ((`Coastal Plain Nonalluvial Wetlands`/max(`Coastal Plain Nonalluvial Wetlands`)) * 100),
+    CPOUW_Constancy = ((`Coastal Plain Open Uplands and Woodlands`/max(`Coastal Plain Open Uplands and Woodlands`)) * 100), 
+    MUFS_Constancy = ((`Maritime Upland Forests and Shrublands`/max(`Maritime Upland Forests and Shrublands`))*100 )
+  )
+
+
+round_df <- function(x, digits) {
+    numeric_columns <- sapply(x, mode) == 'numeric'
+    x[numeric_columns] <-  round(x[numeric_columns], digits)
+    x
+}
+
+Constancy_Count <- round_df(Constancy_Count, 0)
+
+```
+
+```{r}
+Cover_Calc_Code <- Cover_Calc %>%
+  dplyr::select(Species_Original, CPNW_Cover, CPOUW_Cover, MUFS_Cover) 
+
+Constancy_Count_Code <- Constancy_Count %>%
+  dplyr::select(Species_Original, CPNW_Constancy, CPOUW_Constancy, MUFS_Constancy) 
+```
+
+```{r}
+Constancy_Final <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(Cover_Calc_Code, Constancy_Count_Code))
+```
+
+
+```{r}
+
+Constancy_Final <- Constancy_Final %>%
+  dplyr::select(Species_Original, CPNW_Constancy, CPNW_Cover, CPOUW_Constancy, CPOUW_Cover, MUFS_Constancy, MUFS_Cover)
+```
+
+```{r}
+Constancy_Final[Constancy_Final == 0] <- NA
+
+Constancy_Final[is.na(Constancy_Final)] <- "-"
+```
+
+
+

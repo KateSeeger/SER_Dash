@@ -1,0 +1,451 @@
+---
+title: "SpeciesDiversityViz"
+output: html_document
+date: '2022-11-01'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(readr)
+library(RColorBrewer)
+library(patchwork)
+library(knitr)
+library(DT)
+library(gt)
+library(base)
+
+#includes original code with gt tables and reactable formatting
+```
+
+```{r}
+species_rich <- read_csv(here::here("DataIn", "SpeciesDiversity_LongFormat.csv"))
+
+#Species_Diversity_ID instead of Plant Code because it only contains genus level not species
+
+#Depth 3 (1m2) - 8 plots
+#Depth 2 (10m2) - 4 plots
+#Depth 1 (100m2) - 4 plots
+
+species_rich <- species_rich %>%
+  tidyr::replace_na(list(Nativity = "Unknown"))
+```
+
+```{r}
+#Summarizing nativity of species per plot
+#Using Species_Diversity_ID not Plant Code because doesn't account for sp level differences 
+
+species_rich_nativity <- species_rich %>%
+  filter(Sample_Depth_Code != 0) %>%
+  mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code)
+         ) %>%
+  group_by(Plot_Code, Species_Diversity_ID,
+           Nativity) %>%
+  count(Nativity)
+
+species_rich_nativity <- species_rich_nativity %>%
+  group_by(Plot_Code) %>%
+  count(Nativity)
+
+Species_nativity <- species_rich_nativity %>%
+  pivot_wider(
+    names_from = Nativity, 
+    values_from = n
+  )
+
+```
+
+```{r}
+#Total Plot Species Richness
+
+species_rich_total <- species_rich %>%
+  filter(Sample_Depth_Code != 0) %>%
+  mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code),
+         Growth_Form = toupper(Growth_Form)) %>%
+  group_by(Plot_Code, Species_Diversity_ID, Growth_Form)%>%
+  count(Growth_Form) 
+
+species_rich_total <- species_rich_total %>%
+  group_by(Plot_Code, Growth_Form) %>%
+  summarize(obs = n())
+
+#manual check BIRT002 HERB == 34 unique species
+```
+
+```{r}
+# Species Richness at the 100m2 level 
+# FORBES WORKFLOW: Find unique number of species per module and then divide by number of subset modules ((n1 + n2 + n3 + n4/4), there are 4, 100m2 plots so we would want to find the species richness average)
+
+species_rich_mod100 <- species_rich %>%
+  filter(Sample_Depth_Code != 0) %>%
+  mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code), 
+         Growth_Form = toupper(Growth_Form)) %>%
+  group_by(Plot_Code, 
+           Growth_Form,
+           Module, 
+           Species_Diversity_ID) %>%
+  count(Species_Diversity_ID)
+
+#for example in BIRT002 for HERBS in mod 1, there are 22 unique species
+
+species_rich_mod100 <- species_rich_mod100 %>%
+  group_by(Plot_Code, Growth_Form, Module, Species_Diversity_ID) %>%
+  count(Module)
+  
+species_rich_mod100 <- species_rich_mod100 %>%
+  group_by(Plot_Code, Growth_Form, Module) %>%
+  summarize(numSpecies = sum(n))
+  
+species_rich_mod100 <- species_rich_mod100 %>%
+  group_by(Plot_Code, Growth_Form) %>%
+  summarize(ModPlot100 = mean(numSpecies))
+  
+
+# Confirming code in another site
+# species_rich_mod100 %>%
+#   filter(grepl("BIRT", Plot_Code)) %>%
+#   filter(Growth_Form == "HERB") %>%
+#   group_by(Growth_Form) %>%
+#   summarize(ModPlot100 = sum(ModPlot100))
+#  
+# species_rich_mod100 %>%
+#   filter(grepl("KNOB", Plot_Code))%>%
+#   filter(Growth_Form == "HERB") %>%
+#   group_by(Growth_Form) %>%
+#   summarize(ModPlot100 = sum(ModPlot100)) 
+```
+
+```{r}
+#Species Richness at the 10m2 level 
+
+species_rich_mod10 <- species_rich %>%
+  filter(Sample_Depth_Code != 0, 
+         Sample_Depth_Code != 1) %>%
+  mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code), 
+         Growth_Form = toupper(Growth_Form)) %>%
+  group_by(Plot_Code, 
+           Growth_Form,
+           Module,
+           Corner,
+           Species_Diversity_ID) %>%
+  count(Species_Diversity_ID)
+
+species_rich_mod10 <- species_rich_mod10 %>%
+  group_by(Plot_Code, 
+           Growth_Form,
+           Module,
+           Corner,
+           Species_Diversity_ID) %>%
+  count(Corner)
+
+species_rich_mod10 <- species_rich_mod10 %>%
+  group_by(Plot_Code, 
+           Growth_Form,
+           Module,
+           Corner) %>%
+  summarize(numSpecies = sum(n))
+  
+species_rich_mod10 <- species_rich_mod10 %>%
+  group_by(Plot_Code, Growth_Form) %>%
+  summarize(Mod10 = mean(numSpecies))
+```
+
+```{r}
+#Species Richness at the 1m2 level 
+
+species_rich_mod1 <- species_rich %>%
+  filter(Sample_Depth_Code == 3) %>%
+  mutate(Sample_Depth_Code = as.factor(Sample_Depth_Code), 
+         Growth_Form = toupper(Growth_Form)) %>%
+  group_by(Plot_Code, 
+           Growth_Form, 
+           Module,
+           Corner,
+           Species_Diversity_ID) %>%
+  count(Species_Diversity_ID)
+
+species_rich_mod1 <- species_rich_mod1 %>%
+  group_by(Plot_Code, 
+           Growth_Form, 
+           Module, 
+           Corner,
+           Species_Diversity_ID) %>%
+  count(Corner)
+  
+species_rich_mod1 <- species_rich_mod1 %>%
+  group_by(Plot_Code,
+           Growth_Form,
+           Module, 
+           Corner) %>%
+  summarize(numSpecies = sum(n))
+  
+species_rich_mod1 <- species_rich_mod1 %>%
+  group_by(Plot_Code, Growth_Form) %>%
+  summarize(Mod1 = mean(numSpecies))
+```
+
+```{r}
+# Full join of SP Div Tables 
+species_rich_t3 <- Reduce(function (...) { merge(..., all = TRUE) },  
+                           list(species_rich_total, species_rich_mod100, species_rich_mod10, species_rich_mod1))
+```
+
+```{r}
+species_rich_t3 <- species_rich_t3 %>%
+  pivot_wider(
+    names_from = Growth_Form, 
+    values_from = c(obs,
+                    ModPlot100,
+                    Mod10, 
+                    Mod1), 
+    names_prefix = "")
+
+species_rich_t3_full <- Reduce(function (...) { merge(..., all = TRUE) },  # Full join
+                           list(Species_nativity, species_rich_t3))
+
+round_df <- function(x, digits) {
+    # round all numeric variables
+    # x: data frame 
+    # digits: number of digits to round
+    numeric_columns <- sapply(x, mode) == 'numeric'
+    x[numeric_columns] <-  round(x[numeric_columns], digits)
+    x
+}
+
+species_rich_t3_full <- round_df(species_rich_t3_full, 1)
+
+species_rich_t3_full <- species_rich_t3_full %>%
+    replace(is.na(.), 0)
+```
+
+```{r}
+timu_t3 <- species_rich_t3_full %>%
+  gt() %>%
+  cols_label(
+    Plot_Code = "Plot Code",
+    Native = html("<br>Native<sup>a</sup>"),
+    `Non-Native`= html("<br>Non-native <sup>a</sup>"),
+    Unknown = html("<br>Unknown<sup>a</sup>"),
+    obs_HERB = html("<br>H<sup>a</sup>"), 
+    obs_SHRUB = html("<br>S<sup>a</sup>"), 
+    obs_TREE = html("<br>T<sup>a</sup>"), 
+   `obs_TREE SHRUB` = html("<br>TS<sup>a</sup>"),
+    ModPlot100_HERB = html("<br>H<sup>b</sup>"), 
+    ModPlot100_SHRUB = html("<br>S<sup>b</sup>"), 
+    ModPlot100_TREE = html("<br>T<sup>b</sup>"), 
+   `ModPlot100_TREE SHRUB` = html("<br>TS<sup>b</sup>"),
+    Mod10_HERB = html("<br>H<sup>c</sup>"), 
+    Mod10_SHRUB = html("<br>S<sup>c</sup>"), 
+    Mod10_TREE = html("<br>T<sup>c</sup>"), 
+    `Mod10_TREE SHRUB` = html("<br>TS<sup>c</sup>"),
+   Mod1_HERB = html("<br>H<sup>d</sup>"), 
+    Mod1_SHRUB = html("<br>S<sup>d</sup>"), 
+    Mod1_TREE = html("<br>T<sup>d</sup>"), 
+    `Mod1_TREE SHRUB` = html("<br>TS<sup>d</sup>")) %>%
+   tab_options(table.font.size = 12,
+              column_labels.border.bottom.color = "gray", 
+              column_labels.border.top.color = "gray", 
+              stub.border.color = "gray", 
+              table.font.color = "black", 
+              table.font.weight = "light", 
+              column_labels.font.weight = "bold") %>%
+  cols_align(
+    align = "center", 
+    columns = everything()
+  ) %>%
+  cols_width(
+    starts_with("Plot_Code") ~ px(150)
+  ) %>%
+tab_style(
+  style = cell_borders(
+        sides = "right",
+        color = "Gray",
+        weight = px(2)), 
+locations = list(
+  cells_body(
+    column = Plot_Code
+  ),
+  cells_body( 
+    columns = `Unknown`), 
+  cells_body(
+    columns = `obs_TREE SHRUB`
+  ), 
+  cells_body(
+    columns = `ModPlot100_TREE SHRUB`
+  ), 
+  cells_body(
+    columns = `Mod10_TREE SHRUB`
+  ), 
+  cells_body(
+    column = `Mod1_TREE SHRUB`
+  )
+))
+
+#timu_t3
+#write.csv(timu_t3, "Table_T3.csv", row.names = FALSE)
+#timu_t3 %>% gtsave(filename = "TimuT3_Replicate.html", inline_css = TRUE)
+```
+
+```{css ref.label="styles", echo=FALSE}
+```
+
+```{r ref.label="font_styles", echo=FALSE}
+```
+
+```{css ref.label="pkgdown_styles", echo=FALSE}
+```
+
+```{r table, echo=FALSE}
+library(reactable)
+library(htmltools)
+
+#species_rich_t3_full
+nativity <- c("Native", "Non-Native", "Unknown")
+full_depth <- c("obs_HERB", "obs_SHRUB", "obs_TREE", "obs_TREE SHRUB") 
+modular_depth <- c("ModPlot100_HERB", "ModPlot100_SHRUB", "ModPlot100_TREE", "ModPlot100_TREE SHRUB")
+nested_10_m <- c("Mod10_HERB", "Mod10_SHRUB", "Mod10_TREE", "Mod10_TREE SHRUB")
+nested_1_m <- c("Mod1_HERB", "Mod1_SHRUB", "Mod1_TREE", "Mod1_TREE SHRUB")
+full_plot <- c(nativity, full_depth)
+
+species_rich_reactable <- species_rich_t3_full[, c("Plot_Code", nativity, full_depth, modular_depth, nested_10_m, nested_1_m)]
+
+#write.csv(species_rich_reactable, "sp_rich_reactable.csv")
+
+#column default settings 
+integer_columns <- function(maxWidth = 50, ...) {
+  colDef(maxWidth = maxWidth, align = "center",...)
+}
+
+species_rich_reactable %>%
+  reactable(
+    pagination = F, 
+    defaultSorted = "Plot_Code", 
+    defaultSortOrder = "asc",
+    defaultColGroup = colGroup(headerClass = "group", headerVAlign = "bottom"),
+    columnGroups = list(
+      colGroup(name = "400 m2 Plot", columns = full_plot), 
+      colGroup(name = "100 m2 Plot", columns = modular_depth),
+      colGroup(name = "10 m2 Plot", columns = nested_10_m), 
+      colGroup(name = "1 m2 Plot", columns = nested_1_m)
+    ), 
+      defaultColDef = colDef(
+        maxWidth = 80,
+        vAlign = "center",
+        headerVAlign = "bottom",
+        class = "cell",
+        headerClass = "header", 
+        headerStyle = list(fontWeight = 700)
+  ), 
+  columns = list(
+    Plot_Code = colDef(name = "Plot Code", maxWidth = 85),
+    Native = colDef(align = "center", class = "border-left"),
+    `Non-Native` = colDef(align = "center"),
+    Unknown = colDef(align = "center", maxWidth = 85),
+    obs_HERB = integer_columns(name = "H", class = "border-left"), 
+    obs_SHRUB = integer_columns(name = "S"), 
+    obs_TREE= integer_columns(name = "T"), 
+   `obs_TREE SHRUB` = integer_columns(name = "TS"),
+    ModPlot100_HERB = integer_columns(name = "H", class = "border-left"), 
+    ModPlot100_SHRUB = integer_columns(name = "S"), 
+    ModPlot100_TREE = integer_columns(name = "T"), 
+   `ModPlot100_TREE SHRUB` = integer_columns(name = "TS"),
+    Mod10_HERB = integer_columns(name = "H", class = "border-left"), 
+    Mod10_SHRUB = integer_columns(name = "S"), 
+    Mod10_TREE = integer_columns(name = "T"), 
+    `Mod10_TREE SHRUB` = integer_columns(name = "TS"),
+   Mod1_HERB = integer_columns(name = "H", class = "border-left"), 
+    Mod1_SHRUB = integer_columns(name = "S"), 
+    Mod1_TREE = integer_columns(name = "T"), 
+    `Mod1_TREE SHRUB` = integer_columns(name = "TS"), 
+   rowHeader = TRUE
+  )
+  )
+```
+
+```{r}
+species_rich_test <- species_rich_reactable
+
+names(species_rich_test) <- c("Plot Code", "Native<sup>a</sup>", "Non-Native<sup>a</sup>"  , "Unknown<sup>a</sup>"  , "H<sup>a</sup>"  ,  "S<sup>a</sup>"  ,  "T<sup>a</sup>"  , "TS<sup>a</sup>"  ,  "H<sup>b</sup>"  ,  "S<sup>b</sup>"  , 
+ "T<sup>b</sup>"  ,  "TS<sup>b</sup>"  ,  "H<sup>c</sup>"  , "S<sup>c</sup>"  , "T<sup>c</sup>"  , "TS<sup>c</sup>"  ,
+ "H<sup>d</sup>"  ,  "S<sup>d</sup>"  ,  "T<sup>d</sup>"  , "TS<sup>d</sup>")   
+
+nativity <- c( "Native<sup>a</sup>", "Non-Native<sup>a</sup>"  , "Unknown<sup>a</sup>" )
+full_depth <- c("H<sup>a</sup>"  ,  "S<sup>a</sup>"  ,  "T<sup>a</sup>"  , "TS<sup>a</sup>") 
+modular_depth <- c( "H<sup>b</sup>"  ,  "S<sup>b</sup>"  , 
+ "T<sup>b</sup>"  ,  "TS<sup>b</sup>")
+nested_10_m <- c("H<sup>c</sup>"  , "S<sup>c</sup>"  , "T<sup>c</sup>"  , "TS<sup>c</sup>" )
+nested_1_m <- c( "H<sup>d</sup>"  ,  "S<sup>d</sup>"  ,  "T<sup>d</sup>"  , "TS<sup>d</sup>")
+full_plot <- c(nativity, full_depth)
+
+species_rich_test <- species_rich_test[, c("Plot Code", nativity, full_depth, modular_depth, nested_10_m, nested_1_m)]
+
+
+integer_columns <- function(maxWidth = 70, ...) {
+  colDef(maxWidth = maxWidth, align = "center",...)
+}
+
+reactable::reactable(
+  species_rich_test,
+    defaultColDef = colDef(html = TRUE, 
+                           maxWidth = 45, 
+                           vAlign = "center",
+                           headerVAlign = "bottom",
+                           class = "cell",
+                           headerClass = "header", 
+                           headerStyle = list(fontWeight = 700)),
+    pagination = F, 
+    defaultSorted = "Plot Code", 
+    defaultSortOrder = "asc",
+    # defaultColGroup = colGroup(headerClass = "group", headerVAlign = "bottom"),
+    # columnGroups = list(
+    #   colGroup(name = "400 m2 Plot", columns = full_plot),
+    #   colGroup(name = "100 m2 Plot", columns = modular_depth),
+    #   colGroup(name = "10 m2 Plot", columns = nested_10_m),
+    #   colGroup(name = "1 m2 Plot", columns = nested_1_m)
+    # ),
+  columns = list(
+    `Plot Code` = colDef(maxWidth = 90, class = "cell") , 
+    `Native<sup>a</sup>` = integer_columns(class = "border-left"), 
+    `Non-Native<sup>a</sup>`= integer_columns(maxWidth = 78, class = "group"), 
+    `Unknown<sup>a</sup>` = integer_columns(maxWidth = 72, class = "group"), 
+    `H<sup>a</sup>` = colDef(class = "border-left"),
+    `H<sup>b</sup>` = colDef(class = "border-left"),
+    `H<sup>c</sup>` = colDef(class = "border-left"),
+    `H<sup>d</sup>` = colDef(class = "border-left")
+    
+  ))
+```
+
+
+```{css styles, eval=FALSE}
+.border-left {
+  border-left: 2px solid #555;
+  font-size: 1.175rem;
+  
+}
+
+.header { 
+  border-bottom-color: #555;
+  font-size: 1.25rem;
+  font-weight: 600;
+<!-- text-transform: uppercase; -->
+}
+
+.group {
+  font-size: 1.1875rem;
+  padding-left: 5px;
+  padding-right:5px;
+}
+
+.cell {
+  font-size: 1.175rem;
+
+}
+
+```
+

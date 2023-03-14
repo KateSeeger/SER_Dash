@@ -1,0 +1,217 @@
+---
+title: "Flex Dashboard Test"
+output: 
+  flexdashboard::flex_dashboard:
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(dygraphs)
+library(flexdashboard)
+library(leaflet)
+library(tidyverse)
+library(plotly)
+library(DT)
+library(ggthemes)
+library(rstatix)
+library(pwr)
+library(reactable)
+knitr::kable(mtcars)
+knitr::kable(ToothGrowth)
+
+#testing flexdashboard set up/using r data
+```
+
+
+Start Page {data-orientation=columns}
+=======================================================================
+
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+```{r}
+# you can create another column by using two hashtags
+```
+
+### Motor Trend Car Road Tests
+
+```{r, fig.width=10, fig.height=7}
+datatable(mtcars)
+```
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+
+### Rear axle ratio/mpg
+
+```{r}
+# Creating plots with ggplotly()
+
+
+mpg_plot <- ggplot(mtcars, aes(x = drat, y = mpg))
+mpg_plot <- mpg_plot + geom_point()
+
+ggplotly(mpg_plot)
+```
+
+
+Expert Page {}
+=======================================================================
+
+
+Column {data-width=750}
+-----------------------------------------------------------------------
+### MPG/HP
+
+```{r}
+mtfastcars <- mtcars %>%
+  mutate(cyl = as.factor(cyl)) %>%
+  ggplot(aes(x = hp,
+             y = mpg, 
+             color = cyl, 
+             )) +
+  geom_point() + 
+  theme_bw() + 
+  labs(x = "Gross Horsepower", 
+       y = "Miles per gallon", 
+       ) + 
+  scale_color_discrete(name= "Number of Cylinders")
+ggplotly(mtfastcars)
+
+```
+
+
+Row {.tabset .tabset-fade} 
+-----------------------------------------------------------------------
+### Column 2
+```{r}
+reactable(
+  iris,
+  columns = list(
+    Sepal.Length = colDef(name = "Length"),
+    Sepal.Width = colDef(name = "Width"),
+    Petal.Length = colDef(name = "Length"),
+    Petal.Width = colDef(name = "Width")
+  ),
+  columnGroups = list(
+    colGroup(name = "Sepal", columns = c("Sepal.Length", "Sepal.Width")),
+    colGroup(name = "Petal", columns = c("Petal.Length", "Petal.Width"))
+  )
+)
+
+
+```
+
+### Test Row
+```{r}
+
+```
+
+
+
+Odontoblast length in Guinea Pigs {data-orientation=column}
+=======================================================================
+
+   
+Row
+------------------------------------------------------------------------
+    
+### Tooth growth/dose
+    
+```{r}
+newTG <- ToothGrowth %>%
+  mutate(dose = as.factor(dose))
+
+newTG %>%
+ggplot(aes(y = len, fill= dose)) + 
+  geom_boxplot() + 
+  theme_bw() + 
+  facet_wrap(.~supp)
+
+```
+
+```{r}
+newTG <- ToothGrowth %>%
+  mutate(dose = as.factor(dose))
+
+
+len_suppGPP <- ggplot(newTG, aes(y = len, fill= dose)) + 
+  geom_boxplot(size = 0.25) +
+  theme_bw() +
+  facet_wrap(.~supp) 
+
+# + rotates axis labels --  theme(axis.text.x=element_text(angle=-90, vjust=0.4,hjust=1))
+
+
+ggplotly(len_suppGPP)
+
+
+```
+
+Row
+-----------------------------------------------------------------------
+     
+ 
+    
+### Supp OJ Anova
+
+```{r}
+OJTG <- newTG %>%
+  filter(supp == "OJ")
+
+VCTG <- newTG %>%
+  filter(supp == "VC")
+
+OJaov <- aov(len ~ dose, data = OJTG)
+
+#summary(OJaov)
+
+tukeyoj <- TukeyHSD(OJaov, conf.level = 0.95)
+
+tukeyoj
+```
+
+### Supp VC Anova
+
+
+```{r}
+VCTG <- newTG %>%
+  filter(supp == "VC")
+
+VCaov <- aov(len ~ dose, data = VCTG)
+
+#summary(VCaov)
+
+tukeyvc <- TukeyHSD(VCaov, conf.level = 0.95)
+
+tukeyvc
+
+```
+
+
+Odontoblast length in Guinea Pigs {data-orientation=Columns}
+=======================================================================
+
+   
+Row
+------------------------------------------------------------------------
+    
+### OJ Supplement 
+
+```{r}
+#Power analysis is determining how many samples are needed to find a significant difference between the dosages 
+```
+
+
+```{r}
+datatable(OJTG)
+```
+
+Row
+------------------------------------------------------------------------
+
+### Power Analysis 
+```{r}
+pwr.anova.test(f = 0.5, k = 3, sig.level = 0.05, power = 0.8 )
+```
+
